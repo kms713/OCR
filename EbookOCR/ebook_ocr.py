@@ -341,13 +341,11 @@ def main(argv=None) -> int:
                 p.no = no
                 pages.append(p)
                 continue
-        if ocr is None:
-            import ocr_paddle as op
-
-            print("OCR 엔진 준비 중... (처음엔 모델을 내려받아 시간이 걸립니다)")
-            ocr = op.build_ocr(op.default_options(device=args.device, engine=args.engine, no_mkldnn=args.no_mkldnn))
         import ocr_paddle as op
 
+        if ocr is None:
+            print("OCR 엔진 준비 중... (처음엔 모델을 내려받아 시간이 걸립니다)")
+            ocr = op.build_ocr(op.default_options(device=args.device, engine=args.engine, no_mkldnn=args.no_mkldnn))
         p = ocr_image(ocr, op.load_image(f), no, f.name, args)
         d = page_to_json(p)
         d.update(min_score=args.min_score, keep_pictures=args.keep_pictures, picture_fill=args.picture_fill)
