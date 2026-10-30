@@ -1,0 +1,21 @@
+# 빌드 때 자동으로 만들어지는 것들 (build_*.bat 이 다시 만든다)
+.venv/
+.venv_lite/
+.venv_onnx/
+build/
+build_lite/
+dist/
+installer/
+installer_lite/
+models/
+models_onnx/
+__pycache__/
+*.pyc
+
+# 실행·점검 로그
+ocr_log.txt*
+ocr_check.txt
+ocr_console.txt
+ocr_crash.txt
+cpu_check.txt
+onnx_report.txt
