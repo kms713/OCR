@@ -1,0 +1,4 @@
+paddlepaddle==3.2.2
+paddleocr==3.7.0
+python-hwpx==6.8.0
+pyinstaller==6.22.3
