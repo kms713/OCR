@@ -19,6 +19,8 @@ PaddleOCR 한국어 OCR 스크립트
     2) 글자는 항상 '원본' 이미지에서 읽습니다.
     3) 뒷면 비침 제거 이미지는 판정용으로만 씁니다: 비침 제거 후 잉크가 거의 안 남는 글상자
        (= 뒷면 비침·연한 연필 자국)만 결과에서 뺍니다. 인쇄 글자 인식 결과는 바뀌지 않습니다.
+    4) 테두리가 있는 표·박스는 HWPX에서 칸 하나짜리 표로 감싸 그 안에 글을 넣습니다.
+       칸 구조는 살리지 않고, 위쪽이 뚫린 <보기>형 박스도 하나의 표로 봅니다. 글자·순서는 바뀌지 않습니다.
 
 사용 예 (Windows에서는 python 대신 py -3.12)
     python ocr_paddle.py 시험지.pdf --mark-low 0.6
@@ -26,6 +28,7 @@ PaddleOCR 한국어 OCR 스크립트
     python ocr_paddle.py 시험지.pdf --no-filter             # 걸러내기 끄기
     python ocr_paddle.py 시험지.pdf --layout single         # 두 단 분리 끄기
     python ocr_paddle.py 시험지.pdf --format txt            # HWPX 없이 텍스트만
+    python ocr_paddle.py 시험지.pdf --no-table              # 표·박스를 표로 감싸지 않고 줄글로만
     python ocr_paddle.py 스캔폴더 -o 결과 --recursive
 
 출력
@@ -85,6 +88,8 @@ class PageResult:
     page: int  # 1부터 시작
     items: list[Item] = field(default_factory=list)  # 걸러낸 것 포함 전체
     lines: list[str] = field(default_factory=list)
+    # lines와 같은 길이: 그 줄이 들어 있는 표·박스 번호 (표 밖이면 None). 비어 있으면 표 정보 없음
+    line_boxes: list[int | None] = field(default_factory=list)
 
     @property
     def kept(self) -> list[Item]:
@@ -396,6 +401,90 @@ def plan_regions(norm: np.ndarray, layout: str) -> tuple[list[tuple[int, int, in
 
 
 # ----------------------------------------------------------------------------
+# 표·박스 찾기: 테두리가 있는 사각형만 (칸 구조는 보지 않는다)
+# ----------------------------------------------------------------------------
+def _segments(mask: np.ndarray, vertical: bool) -> list[tuple[int, int, int]]:
+    """선 마스크의 덩어리마다 (위치, 시작, 끝). 세로선이면 (x, y1, y2), 가로선이면 (y, x1, x2)."""
+    import cv2
+
+    n, _, stats, _ = cv2.connectedComponentsWithStats(mask)
+    segs = []
+    for i in range(1, n):
+        x, y, bw, bh, _ = stats[i]
+        segs.append((int(x + bw // 2), int(y), int(y + bh)) if vertical else (int(y + bh // 2), int(x), int(x + bw)))
+    return segs
+
+
+def find_boxes(norm: np.ndarray) -> list[list[int]]:
+    """테두리가 있는 표·박스의 바깥 사각형 [x1, y1, x2, y2] 목록 (큰 것부터).
+
+    · 길이가 비슷한 세로선 두 개 + 위·아래 가로선으로 사각형을 찾는다.
+      위·아래 중 한쪽은 거의 끊김 없이 이어져야 하고(95%), 다른 쪽은 절반 가까이만 있어도 된다(40%).
+      → 위쪽 선이 뚫리고 그 자리에 <보기> 같은 제목이 있는 박스도 잡힌다.
+    · 칸이 나뉜 표는 바깥 사각형 하나로 본다 (다른 사각형과 겹치는 작은 것은 버림).
+    · 페이지·단 전체를 두르는 테두리(높이 60% 초과)는 표로 보지 않는다.
+    · 선 없이 글만 늘어놓은 표는 잡히지 않는다 → 지금처럼 줄글로 나온다.
+    """
+    import cv2
+
+    h, w = norm.shape
+    s = w / REF_WIDTH
+    ink = (norm < 160).astype(np.uint8)
+    # 길게 이어진 획만 남겨 선을 찾는다 (글자 획은 짧아서 사라짐). 스캔 끊김·기울기는 닫기로 메운다
+    hor = cv2.morphologyEx(ink, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (max(15, int(80 * s)), 1)))
+    hor = cv2.morphologyEx(hor, cv2.MORPH_CLOSE,
+                           cv2.getStructuringElement(cv2.MORPH_RECT, (max(3, int(15 * s)), max(3, int(5 * s)))))
+    ver = cv2.morphologyEx(ink, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(15, int(60 * s)))))
+    ver = cv2.morphologyEx(ver, cv2.MORPH_CLOSE,
+                           cv2.getStructuringElement(cv2.MORPH_RECT, (max(3, int(5 * s)), max(3, int(15 * s)))))
+
+    min_w, min_h = 150 * s, 70 * s
+    verts = [v for v in _segments(ver, vertical=True) if v[2] - v[1] >= min_h]
+    tol = max(4, int(15 * s))
+
+    def coverage(yl: int, yr: int, x1: int, x2: int) -> float:
+        """왼쪽 끝 yl에서 오른쪽 끝 yr까지 이은 선을 따라 가로선이 있는 비율 (스캔 기울기 반영)."""
+        xs = np.arange(x1, x2 + 1)
+        ys = np.rint(np.linspace(yl, yr, xs.size)).astype(int)
+        band = np.clip(ys[None, :] + np.arange(-tol, tol + 1)[:, None], 0, h - 1)
+        return float(hor[band, xs[None, :]].any(axis=0).mean())
+
+    cands = []
+    for i, a in enumerate(verts):
+        for b in verts[i + 1:]:
+            l, r = (a, b) if a[0] < b[0] else (b, a)
+            if r[0] - l[0] < min_w:
+                continue
+            overlap = min(l[2], r[2]) - max(l[1], r[1])
+            if overlap < 0.8 * max(l[2] - l[1], r[2] - r[1]):
+                continue
+            y1, y2 = min(l[1], r[1]), max(l[2], r[2])
+            if y2 - y1 > 0.6 * h:
+                continue
+            top, bottom = coverage(l[1], r[1], l[0], r[0]), coverage(l[2], r[2], l[0], r[0])
+            if max(top, bottom) >= 0.95 and min(top, bottom) >= 0.4:
+                cands.append([l[0], y1, r[0], y2])
+
+    boxes: list[list[int]] = []
+    for c in sorted(cands, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]), reverse=True):
+        if not any(c[0] < o[2] and o[0] < c[2] and c[1] < o[3] and o[1] < c[3] for o in boxes):
+            boxes.append(c)
+    return boxes
+
+
+def box_of(it: Item, boxes: list[list[int]]) -> int | None:
+    """글상자가 들어 있는 표·박스 번호. 위쪽 테두리에 걸친 제목(<보기> 등)도 그 박스에 넣는다.
+
+    테두리 위쪽에 있는 글은 테두리에 실제로 걸쳐 있을 때만 넣는다 (바로 위 줄이 딸려 들어가지 않게).
+    """
+    cx = (it.box[0] + it.box[2]) / 2
+    for i, (x1, y1, x2, y2) in enumerate(boxes):
+        if x1 <= cx <= x2 and it.cy <= y2 and (it.cy >= y1 or (it.box[3] > y1 and it.cy >= y1 - 0.5 * it.h)):
+            return i
+    return None
+
+
+# ----------------------------------------------------------------------------
 # OCR
 # ----------------------------------------------------------------------------
 def _is_ascii(p: Path) -> bool:
@@ -517,10 +606,8 @@ def to_items(res, min_score: float, dx: int = 0, dy: int = 0, region: int = 0) -
     return items
 
 
-def group_lines(items: list[Item], mark_low: float) -> list[str]:
-    """글상자를 위→아래, 왼쪽→오른쪽 순으로 묶어 줄 단위 텍스트로 만든다."""
-    if not items:
-        return []
+def group_rows(items: list[Item]) -> list[list[Item]]:
+    """글상자를 위→아래 순으로 줄 단위로 묶는다 (줄 안은 왼쪽→오른쪽)."""
     rows: list[list[Item]] = []
     for it in sorted(items, key=lambda x: (x.cy, x.box[0])):
         if rows:
@@ -531,19 +618,25 @@ def group_lines(items: list[Item], mark_low: float) -> list[str]:
                 row.append(it)
                 continue
         rows.append([it])
-
-    lines = []
     for row in rows:
         row.sort(key=lambda x: x.box[0])
-        parts = []
-        for i, it in enumerate(row):
-            text = f"{it.text}[?]" if mark_low > 0 and it.score < mark_low else it.text
-            if i > 0:
-                gap = it.box[0] - row[i - 1].box[2]
-                parts.append("\t" if gap > 1.5 * it.h else " ")
-            parts.append(text)
-        lines.append("".join(parts))
-    return lines
+    return rows
+
+
+def row_text(row: list[Item], mark_low: float) -> str:
+    parts = []
+    for i, it in enumerate(row):
+        text = f"{it.text}[?]" if mark_low > 0 and it.score < mark_low else it.text
+        if i > 0:
+            gap = it.box[0] - row[i - 1].box[2]
+            parts.append("\t" if gap > 1.5 * it.h else " ")
+        parts.append(text)
+    return "".join(parts)
+
+
+def group_lines(items: list[Item], mark_low: float) -> list[str]:
+    """글상자를 위→아래, 왼쪽→오른쪽 순으로 묶어 줄 단위 텍스트로 만든다."""
+    return [row_text(row, mark_low) for row in group_rows(items)]
 
 
 MAX_ASPECT = 8  # 구간의 가로:세로(또는 세로:가로)가 이보다 길쭉하면 흰 여백을 덧대 비율을 맞춘다
@@ -595,21 +688,29 @@ def ocr_page(ocr, img: np.ndarray, args, vis_out: Path | None, page_no: int) -> 
         it.ink = ink_ratio(norm, it.box, args.filter_level)
         it.dropped = not args.no_filter and it.ink < args.filter_ratio
 
-    # 구간 순서대로 줄 만들기 (구간 사이 빈 줄)
+    # 구간 순서대로 줄 만들기 (구간 사이 빈 줄). 글자·순서는 표 찾기와 상관없이 같다
+    boxes = find_boxes(norm) if getattr(args, "tables", True) else []
     lines: list[str] = []
+    line_boxes: list[int | None] = []
     for ri in range(len(regions)):
-        part = group_lines([it for it in items if it.region == ri and not it.dropped], args.mark_low)
-        if part:
+        rows = group_rows([it for it in items if it.region == ri and not it.dropped])
+        if rows:
             if lines:
                 lines.append("")
-            lines.extend(part)
+                line_boxes.append(None)
+            for row in rows:
+                lines.append(row_text(row, args.mark_low))
+                # 줄의 글상자가 모두 같은 표 안에 있을 때만 그 표의 줄로 본다
+                ids = {box_of(it, boxes) for it in row}
+                line_boxes.append(ids.pop() if len(ids) == 1 else None)
 
     if args.show_dropped:
         dropped = [it for it in items if it.dropped]
         if dropped:
             lines += ["", "----- [걸러낸 글상자: 뒷면 비침·연한 자국으로 판정] -----"]
             lines += [f"{it.text}  (잉크 {it.ink:.2f})" for it in sorted(dropped, key=lambda x: (x.cy, x.box[0]))]
-    return PageResult(page=page_no, items=items, lines=lines)
+    line_boxes += [None] * (len(lines) - len(line_boxes))
+    return PageResult(page=page_no, items=items, lines=lines, line_boxes=line_boxes)
 
 
 class Stopped(Exception):
@@ -680,6 +781,26 @@ def page_blocks(pages: list[PageResult]) -> list[tuple[str | None, list[str]]]:
     return [(f"===== {p.page} 페이지 =====", p.lines) for p in pages]
 
 
+def table_runs(lines: list[str], line_boxes: list[int | None]) -> list[tuple[int | None, list[str]]]:
+    """줄 목록을 (표 번호 또는 None, 줄들) 덩어리로 나눈다. 같은 표의 줄은 사이 빈 줄까지 한 덩어리로."""
+    ids = line_boxes if len(line_boxes) == len(lines) else [None] * len(lines)
+    runs: list[tuple[int | None, list[str]]] = []
+    i = 0
+    while i < len(lines):
+        b = ids[i]
+        j = i + 1
+        while j < len(lines):
+            if ids[j] == b:
+                j += 1
+            elif b is not None and not lines[j] and j + 1 < len(lines) and ids[j + 1] == b:
+                j += 2  # 단 구간 사이 빈 줄 하나를 건너 같은 표가 이어지는 경우
+            else:
+                break
+        runs.append((b, lines[i:j]))
+        i = j
+    return runs
+
+
 def write_txt(pages: list[PageResult], path: Path) -> None:
     chunks = []
     for title, lines in page_blocks(pages):
@@ -700,16 +821,35 @@ def write_hwpx(pages: list[PageResult], path: Path) -> None:
     doc = HwpxDocument.new()
     first_para = doc.paragraphs[0]  # 새 문서에 기본으로 있는 빈 문단
     used_first = False
-    for pi, (title, lines) in enumerate(page_blocks(pages)):
-        block = ([title] if title else []) + (lines or [""])
-        for li, text in enumerate(block):
-            if not used_first:
-                first_para.text = text
-                used_first = True
-            elif li == 0 and pi > 0:
-                doc.add_paragraph(text, pageBreak="1")  # 원본 페이지마다 새 쪽에서 시작
+    page_start = False
+
+    def add_text(text):
+        nonlocal used_first, page_start
+        if not used_first:
+            first_para.text = text
+            used_first = True
+        elif page_start:
+            doc.add_paragraph(text, pageBreak="1")  # 원본 페이지마다 새 쪽에서 시작
+        else:
+            doc.add_paragraph(text)
+        page_start = False
+
+    for pi, ((title, lines), page) in enumerate(zip(page_blocks(pages), pages)):
+        page_start = pi > 0
+        if title:
+            add_text(title)
+        if not lines:
+            add_text("")
+        for box, chunk in table_runs(lines, page.line_boxes):
+            if box is None:
+                for text in chunk:
+                    add_text(text)
             else:
-                doc.add_paragraph(text)
+                # 표·박스: 칸 하나짜리 표에 줄마다 문단으로 넣는다
+                if page_start or not used_first:
+                    add_text("")
+                table = doc.add_table(1, 1)
+                table.set_cell_text(0, 0, "\n".join(chunk), split_paragraphs=True)
     doc.save_to_path(str(path))
 
 
@@ -783,6 +923,8 @@ def parse_args(argv=None):
                     help="걸러내기 판정 밝기 0~255 (기본 180). 이보다 연한 잉크를 비침으로 봄")
     ap.add_argument("--filter-ratio", type=float, default=0.25,
                     help="글상자 잉크 중 진한 잉크 비율이 이 값 미만이면 뺌 (기본 0.25, 낮출수록 덜 뺌)")
+    ap.add_argument("--no-table", dest="tables", action="store_false",
+                    help="테두리 있는 표·박스를 HWPX 표로 감싸지 않고 줄글로만 저장")
     ap.add_argument("--show-dropped", action="store_true", help="걸러낸 글상자를 각 페이지 끝에 따로 적기 (검토용)")
     ap.add_argument("--min-score", type=float, default=0.0, help="이 신뢰도 미만 결과는 버림 (0~1, 기본 0=모두 유지)")
     ap.add_argument("--mark-low", type=float, default=0.0, help="이 신뢰도 미만 결과 뒤에 [?] 표시 (교정용, 예: 0.6)")
