@@ -190,6 +190,16 @@ class WindowScreen:
             self.u32.SetProcessDPIAware()
         self.main = self._find_main(title)
         self.target = self._find_render(self.main)
+        u = self.u32  # 64비트에서 창 핸들이 잘리지 않도록 반환형 지정
+        u.WindowFromPoint.argtypes = [wintypes.POINT]
+        u.WindowFromPoint.restype = wintypes.HWND
+        u.GetAncestor.argtypes = [wintypes.HWND, ctypes.c_uint]
+        u.GetAncestor.restype = wintypes.HWND
+        u.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND] + [ctypes.c_int] * 4 + [ctypes.c_uint]
+        self.bring_front()
+        import atexit
+
+        atexit.register(self.release)
 
     def _text(self, hwnd) -> str:
         buf = self.ct.create_unicode_buffer(256)
@@ -240,16 +250,61 @@ class WindowScreen:
     def describe(self) -> str:
         return f"'{self._text(self.main)}' 창 ({self._cls(self.main)} / 찍는 부분: {self._cls(self.target)})"
 
-    def grab(self) -> np.ndarray:
-        from PIL import ImageGrab
+    HWND_TOPMOST, HWND_NOTOPMOST = -1, -2
+    SWP_FLAGS = 0x0001 | 0x0002 | 0x0040  # 크기·위치 그대로, 보이기
+    GA_ROOT = 2
 
-        if self.u32.IsIconic(self.main):
-            raise WindowError("LD플레이어 창이 최소화되어 있습니다. 창을 화면에 띄워 두세요.")
+    def bring_front(self) -> None:
+        """LD플레이어 창을 맨 앞에, 캡처하는 동안 '항상 위'로 둔다 (cmd 창이 가리지 않게)."""
+        u = self.u32
+        if u.IsIconic(self.main):
+            u.ShowWindow(self.main, 9)  # SW_RESTORE
+        u.SetWindowPos(self.main, self.HWND_TOPMOST, 0, 0, 0, 0, self.SWP_FLAGS)
+        # 다른 프로그램 창을 앞으로 가져오는 것을 Windows 가 막는 경우가 있어 Alt 키를 한 번 눌렀다 뗀다
+        u.keybd_event(0x12, 0, 0, 0)
+        u.SetForegroundWindow(self.main)
+        u.keybd_event(0x12, 0, 2, 0)
+
+    def release(self) -> None:
+        """'항상 위' 해제 (끝날 때 자동 호출)."""
+        try:
+            self.u32.SetWindowPos(self.main, self.HWND_NOTOPMOST, 0, 0, 0, 0, self.SWP_FLAGS)
+        except Exception:
+            pass
+
+    def _rect(self) -> tuple[int, int, int, int]:
         r = self.wt.RECT()
         self.u32.GetClientRect(self.target, self.ct.byref(r))
         pt = self.wt.POINT(0, 0)
         self.u32.ClientToScreen(self.target, self.ct.byref(pt))
-        bbox = (pt.x, pt.y, pt.x + r.right, pt.y + r.bottom)
+        return pt.x, pt.y, pt.x + r.right, pt.y + r.bottom
+
+    def covered(self) -> bool:
+        """찍을 영역의 3x3 지점 중 하나라도 다른 창이 덮고 있으면 True."""
+        x1, y1, x2, y2 = self._rect()
+        for fx in (0.05, 0.5, 0.95):
+            for fy in (0.05, 0.5, 0.95):
+                h = self.u32.WindowFromPoint(self.wt.POINT(int(x1 + (x2 - x1) * fx), int(y1 + (y2 - y1) * fy)))
+                if not h or self.u32.GetAncestor(h, self.GA_ROOT) != self.main:
+                    return True
+        return False
+
+    def grab(self) -> np.ndarray:
+        from PIL import ImageGrab
+
+        if self.u32.IsIconic(self.main) or self.covered():
+            self.bring_front()
+            waited = 0.0
+            while self.u32.IsIconic(self.main) or self.covered():
+                if waited == 0:
+                    print("\n[대기] LD플레이어 창이 가려져 있습니다. 가리는 창을 치우면 이어서 찍습니다...")
+                if waited >= 60:
+                    raise WindowError("LD플레이어 창이 1분 넘게 가려져 있어 멈춥니다.")
+                time.sleep(1)
+                waited += 1
+                self.bring_front()
+            time.sleep(0.3)  # 앞으로 나온 창이 다시 그려질 시간
+        bbox = self._rect()
         rgb = np.asarray(ImageGrab.grab(bbox=bbox, all_screens=True).convert("RGB"))
         return np.ascontiguousarray(rgb[:, :, ::-1])  # BGR (OpenCV 와 같은 순서)
 
@@ -374,7 +429,8 @@ def pick_source(adb: Adb, args, quiet: bool = False):
             print("안드로이드 안에서는 찍히지 않습니다 (뷰어의 캡처 차단) → LD플레이어 창 캡처로 바꿉니다.")
     win = WindowScreen(args.window)
     print(f"창 캡처: {win.describe()}")
-    print("  ※ 캡처하는 동안 LD플레이어 창을 다른 창으로 가리거나 최소화하지 마세요. 화면 보호기·절전도 꺼 두세요.")
+    print("  ※ 캡처하는 동안 LD플레이어 창을 '항상 위'로 둡니다 (끝나면 원래대로). 화면 보호기·절전은 꺼 두세요.")
+    print("     진행 상황은 작업 표시줄의 이 창 제목에서도 볼 수 있습니다.")
     return win.grab, win.grab(), "window"
 
 
@@ -453,6 +509,10 @@ def run_capture(adb: Adb, out: Path, args) -> int:
             save_png(crop(img, box), path)
             saved += 1
             print(f"\r  {path.name} 저장 ({saved}장, {time.monotonic() - started:.0f}초)", end="", flush=True)
+            if os.name == "nt":  # 작업 표시줄에서도 진행 상황이 보이게
+                import ctypes
+
+                ctypes.windll.kernel32.SetConsoleTitleW(f"전자책 캡처 - {saved}장 ({path.name})")
             if args.max_pages and saved >= args.max_pages:
                 print(f"\n--max-pages {args.max_pages} 에 도달해 멈춥니다.")
                 break
