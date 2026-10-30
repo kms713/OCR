@@ -8,8 +8,8 @@ if exist ".venv\Scripts\python.exe" goto :install
 rem 파이썬 찾기: py 런처(3.12) → python 명령
 set "PYEXE="
 py -3.12 -c "import sys" >nul 2>&1 && set "PYEXE=py -3.12"
+rem 3.12 가 없고 Python Install Manager 의 py 가 있으면 3.12 를 옆에 설치 - 다른 버전은 그대로 둠
 if not defined PYEXE (
-    rem Python Install Manager(py)가 있으면 3.12 를 옆에 설치 (다른 버전은 그대로 둠)
     where py >nul 2>&1 && (
         echo 파이썬 3.12 를 설치합니다. (이미 있는 다른 버전은 그대로 둡니다^)
         py install 3.12
