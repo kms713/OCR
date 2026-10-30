@@ -9,6 +9,14 @@ rem 파이썬 찾기: py 런처(3.12) → python 명령
 set "PYEXE="
 py -3.12 -c "import sys" >nul 2>&1 && set "PYEXE=py -3.12"
 if not defined PYEXE (
+    rem Python Install Manager(py)가 있으면 3.12 를 옆에 설치 (다른 버전은 그대로 둠)
+    where py >nul 2>&1 && (
+        echo 파이썬 3.12 를 설치합니다. (이미 있는 다른 버전은 그대로 둡니다^)
+        py install 3.12
+        py -3.12 -c "import sys" >nul 2>&1 && set "PYEXE=py -3.12"
+    )
+)
+if not defined PYEXE (
     python -c "import sys; sys.exit(0 if sys.version_info[:2] in ((3,12),(3,13)) and sys.maxsize > 2**32 else 1)" >nul 2>&1 && set "PYEXE=python"
 )
 if not defined PYEXE (
