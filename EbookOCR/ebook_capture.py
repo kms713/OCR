@@ -139,7 +139,12 @@ class Adb:
         import cv2
 
         data = self._run(["exec-out", "screencap", "-p"])
-        img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if not data:  # 뷰어가 캡처를 막으면 오류 없이 빈 응답이 오는 경우가 있다
+            raise AdbError("스크린샷이 비어 있습니다 (뷰어의 캡처 차단)")
+        try:
+            img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        except cv2.error:
+            img = None
         if img is None:
             raise AdbError("스크린샷을 읽지 못했습니다 (adb 응답이 PNG가 아님)")
         return img
