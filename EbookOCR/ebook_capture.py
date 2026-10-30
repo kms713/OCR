@@ -347,16 +347,26 @@ def wait_change(grab, prev_sig: np.ndarray, sig, args) -> np.ndarray | None:
     return None
 
 
+def try_adb_screenshot(adb: Adb) -> np.ndarray | None:
+    """안드로이드 안에서 찍기. 뷰어가 막으면 검은 화면 대신 오류가 나는 기기도 있어 None 으로 돌려준다."""
+    try:
+        return adb.screenshot()
+    except AdbError:
+        return None
+
+
 def pick_source(adb: Adb, args, quiet: bool = False):
-    """(화면 찍는 함수, 첫 화면, 방식 이름). auto 는 adb 가 검은 화면이면 window 로 바꾼다."""
-    if args.source in ("auto", "adb"):
-        img = adb.screenshot()
-        if not looks_blank(img) or args.source == "adb":
+    """(화면 찍는 함수, 첫 화면, 방식 이름). auto 는 adb 가 막히면(검은 화면·오류) window 로 바꾼다."""
+    if args.source == "adb":
+        return adb.screenshot, adb.screenshot(), "adb"
+    if args.source == "auto":
+        img = try_adb_screenshot(adb)
+        if img is not None and not looks_blank(img):
             return adb.screenshot, img, "adb"
         if os.name != "nt":
-            return adb.screenshot, img, "adb"
+            return adb.screenshot, adb.screenshot() if img is None else img, "adb"
         if not quiet:
-            print("안드로이드 안에서 찍으면 검은 화면입니다 (뷰어의 캡처 차단) → LD플레이어 창 캡처로 바꿉니다.")
+            print("안드로이드 안에서는 찍히지 않습니다 (뷰어의 캡처 차단) → LD플레이어 창 캡처로 바꿉니다.")
     win = WindowScreen(args.window)
     print(f"창 캡처: {win.describe()}")
     print("  ※ 캡처하는 동안 LD플레이어 창을 다른 창으로 가리거나 최소화하지 마세요. 화면 보호기·절전도 꺼 두세요.")
@@ -367,10 +377,13 @@ def run_test(adb: Adb, out: Path, args) -> int:
     box = parse_box(args.crop)
     out.mkdir(parents=True, exist_ok=True)
     if args.source in ("auto", "adb"):
-        a = adb.screenshot()
-        save_png(a, out / "test_screen.png")
-        state = "검은 화면 (뷰어가 캡처를 막음)" if looks_blank(a) else "정상"
-        print(f"[adb]    {a.shape[1]} x {a.shape[0]}  {state}  → {(out / 'test_screen.png').resolve()}")
+        a = try_adb_screenshot(adb)
+        if a is None:
+            print("[adb]    캡처 실패 (뷰어가 캡처를 막음)")
+        else:
+            save_png(a, out / "test_screen.png")
+            state = "검은 화면 (뷰어가 캡처를 막음)" if looks_blank(a) else "정상"
+            print(f"[adb]    {a.shape[1]} x {a.shape[0]}  {state}  → {(out / 'test_screen.png').resolve()}")
     grab, img, mode = pick_source(adb, args, quiet=True)
     if mode == "window":
         save_png(img, out / "test_window.png")
@@ -403,7 +416,12 @@ def run_capture(adb: Adb, out: Path, args) -> int:
         size = adb.screen_size()
     except AdbError:
         size = None
-    size = size or adb.screenshot().shape[1::-1]
+    if size is None and args.turn != "key" and not args.tap:
+        shot = try_adb_screenshot(adb)
+        if shot is None:
+            raise AdbError("안드로이드 화면 크기를 알 수 없습니다. --tap x,y 로 누를 위치를 직접 지정하세요.")
+        size = shot.shape[1::-1]
+    size = size or (0, 0)
     turn = make_turner(adb, args, *size)
     page_sig = lambda im: signature(crop(im, box) if box else im)  # noqa: E731
 

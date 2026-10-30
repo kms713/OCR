@@ -12,6 +12,7 @@ ebook_capture.py 로 찍은 page_0001.png ... 폴더를 읽어 본문 글자만 
     2) 머리말·꼬리말·쪽 번호 제거: 위·아래 가장자리에서 여러 쪽에 반복되는 줄과 숫자뿐인 줄을 뺍니다.
     3) 문단 복원: 화면 폭 때문에 생긴 줄바꿈을 이어 붙이고, 들여쓰기·줄 간격·문장 끝으로 문단을 나눕니다.
        쪽이 바뀌며 끊긴 문장도 이어 붙입니다. 본문보다 큰 글자 줄은 제목(##)으로 표시합니다.
+       본문보다 작은 글자 줄은 각주로 보고 '> 주:' 로 따로 적어 본문 문장이 끊기지 않게 합니다.
     4) 쪽마다 인식 결과를 캐시에 저장하므로, 중간에 멈춰도 다시 실행하면 이어서 합니다.
 
 사용 예 (Windows에서는 python 대신 py -3.12)
@@ -50,6 +51,8 @@ CACHE_VERSION = 1
 
 # 문장이 끝났다고 볼 끝 글자
 SENTENCE_END = re.compile(r"[.?!…。」』\"”’')\]>:;]$")
+# 각주 표시 기호만 있는 줄
+NOTE_MARK = re.compile(r"^[\s•·∙●*※†‡]+$")
 # 숫자뿐인 줄 (쪽 번호·진행률): 12 / - 12 - / 12 / 300 / 12쪽 / 37%
 PAGE_NO = re.compile(r"^[\s\-–—·|]*(p\.?\s*)?\d{1,4}(\s*(/|of)\s*\d{1,4})?\s*(쪽|페이지|%)?[\s\-–—·|]*$", re.I)
 
@@ -195,14 +198,25 @@ class Para:
     text: str
     page: int
     heading: bool = False
+    note: bool = False  # 각주 (본문보다 작은 글자)
     open_end: bool = False  # 쪽 끝에서 문장이 끝나지 않음 (다음 쪽과 이어질 수 있음)
     cont_start: bool = False  # 쪽 첫 줄이 들여쓰기 없이 시작 (앞 쪽 문단의 이어짐일 수 있음)
 
 
+HANGUL = "\uac00-\ud7a3"
+WRAP_CHAR = False  # True: 뷰어가 단어 중간에서 줄을 바꿈 → 한글끼리 이어질 때 띄우지 않음 (--wrap char)
+
+
 def join_text(a: str, b: str) -> str:
-    """줄 이어 붙이기. 영어 단어가 하이픈으로 끊긴 경우만 붙여 쓰고, 나머지는 띄어 쓴다."""
+    """줄 이어 붙이기. 영어 단어가 하이픈으로 끊긴 경우만 붙여 쓰고, 나머지는 띄어 쓴다.
+
+    --wrap char 이면 한글 사이(따옴표·괄호를 사이에 둔 경우 포함)는 붙여 쓴다.
+    (글자 단위로 줄을 바꾸는 뷰어는 줄 끝이 단어 중간인 경우가 대부분이라서)
+    """
     if re.search(r"[A-Za-z]-$", a) and re.match(r"[a-z]", b):
         return a[:-1] + b
+    if WRAP_CHAR and re.search(f"[{HANGUL}][\"'’”)」』〉》]?$", a) and re.match(f"[\"'‘“(「『〈《]?[{HANGUL}]", b):
+        return a + b
     return f"{a} {b}"
 
 
@@ -225,10 +239,21 @@ def page_paragraphs(p: Page, lh: float, pitch: float) -> list[Para]:
     right = float(np.percentile(xs2, 90)) if len(rows) >= 3 else max(xs2)
 
     paras: list[Para] = []
-    cur: Para | None = None
-    prev: Row | None = None
+    cur: Para | None = None  # 지금 이어 붙이는 본문 문단
+    prev: Row | None = None  # 직전 본문 줄
+    note: Para | None = None  # 지금 이어 붙이는 각주
     for r in rows:
-        heading = r.h > 1.3 * lh
+        if r.h < 0.75 * lh:  # 작은 글자 = 각주. 본문 흐름(cur·prev)은 건드리지 않는다
+            if NOTE_MARK.match(r.text):
+                continue
+            if note is not None and paras and paras[-1] is note:
+                note.text = join_text(note.text, r.text)
+            else:
+                note = Para(r.text, p.no, note=True)
+                paras.append(note)
+            continue
+        note = None
+        heading = r.h > 1.2 * lh
         indent = r.box[0] - left > 0.6 * lh
         gap = prev is not None and r.box[1] - prev.box[1] > 1.6 * pitch
         prev_short = prev is not None and prev.box[2] < right - 2 * lh and SENTENCE_END.search(prev.text)
@@ -240,23 +265,32 @@ def page_paragraphs(p: Page, lh: float, pitch: float) -> list[Para]:
             cur.text = join_text(cur.text, r.text)
         prev = r
 
-    last = rows[-1]
-    paras[-1].open_end = not paras[-1].heading and not (
-        SENTENCE_END.search(last.text) and last.box[2] < right - 2 * lh)
-    paras[0].cont_start = not paras[0].heading and rows[0].box[0] - left <= 0.6 * lh
+    body = [r for r in rows if r.h >= 0.75 * lh]
+    texts = [x for x in paras if not x.note]
+    if body and texts:
+        last = body[-1]
+        texts[-1].open_end = not texts[-1].heading and not (
+            SENTENCE_END.search(last.text) and last.box[2] < right - 2 * lh)
+        texts[0].cont_start = not texts[0].heading and body[0].box[0] - left <= 0.6 * lh
     return paras
 
 
 def build_paragraphs(pages: list[Page]) -> list[Para]:
     lh, pitch = book_metrics(pages)
     out: list[Para] = []
+    last_text: Para | None = None  # 마지막 본문 문단 (그 뒤에 각주가 와도 이어 붙일 수 있게)
     for p in pages:
         paras = page_paragraphs(p, lh, pitch)
-        if paras and out and out[-1].open_end and paras[0].cont_start:
-            out[-1].text = join_text(out[-1].text, paras[0].text)
-            out[-1].open_end = paras[0].open_end
-            paras = paras[1:]
+        first = next((x for x in paras if not x.note), None)
+        if first is not None and last_text is not None and last_text.open_end and first.cont_start:
+            last_text.text = join_text(last_text.text, first.text)
+            last_text.open_end = first.open_end
+            paras.remove(first)
+        for x in paras:
+            if not x.note:  # 본문 속 각주 표시(•) 지우기
+                x.text = re.sub(r"\s*[•∙]\s*(?=\S)", "", x.text).strip()
         out.extend(paras)
+        last_text = next((x for x in reversed(out) if not x.note), last_text)
     return out
 
 
@@ -270,7 +304,12 @@ def write_markdown(paras: list[Para], path: Path, title: str, page_marks: bool) 
         if page_marks and para.page != last_page:
             lines += [f"<!-- p.{para.page} -->", ""]
             last_page = para.page
-        lines += [f"## {para.text}" if para.heading else para.text, ""]
+        if para.heading:
+            lines += [f"## {para.text}", ""]
+        elif para.note:
+            lines += [f"> 주: {para.text}", ""]
+        else:
+            lines += [para.text, ""]
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
@@ -298,6 +337,9 @@ def parse_args(argv=None):
     ap.add_argument("-o", "--output", help="결과 폴더 (기본: <폴더>_OCR)")
     ap.add_argument("--title", help="책 제목 (기본: 폴더 이름)")
     ap.add_argument("--page-marks", action="store_true", help="Markdown 에 <!-- p.N --> 쪽 표시 넣기")
+    ap.add_argument("--wrap", choices=["word", "char"], default="word",
+                    help="뷰어의 줄바꿈 방식: word(기본, 단어 단위 → 줄 사이를 띄어 씀) | "
+                         "char(단어 중간에서도 줄을 바꿈 → 한글끼리는 붙여 씀)")
     ap.add_argument("--keep-pictures", action="store_true", help="그림 판정을 끄고 모든 글자 유지")
     ap.add_argument("--picture-fill", type=float, default=0.12,
                     help="그림 판정 채움 비율 (기본 0.12, 낮출수록 선 그림까지 그림으로 봄)")
@@ -313,7 +355,9 @@ def parse_args(argv=None):
 
 
 def main(argv=None) -> int:
+    global WRAP_CHAR
     args = parse_args(argv)
+    WRAP_CHAR = args.wrap == "char"
     folder = Path(args.folder)
     if not folder.is_dir():
         print(f"[오류] 폴더가 없습니다: {folder}")
