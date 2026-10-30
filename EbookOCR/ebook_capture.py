@@ -59,7 +59,8 @@ LDPLAYER_PORTS = [5555, 5557, 5559]  # 첫 번째·두 번째·세 번째 LD플�
 
 KEYCODE_DPAD_RIGHT = 22
 COMPARE_WIDTH = 240  # 화면 비교용 축소 폭
-DIFF_THRESHOLD = 1.0  # 축소 흑백 이미지 평균 밝기 차이(0~255)가 이보다 크면 '화면이 바뀜'
+DIFF_LEVEL = 24  # 축소 흑백 이미지에서 밝기가 이만큼 넘게 달라진 점을 '바뀐 점'으로 봄
+DIFF_PIXELS = 12  # 바뀐 점이 이만큼 이상이면 '화면이 바뀜' (글자가 적은 쪽끼리도 구별되도록 낮게)
 
 
 # ----------------------------------------------------------------------------
@@ -344,7 +345,7 @@ def signature(img: np.ndarray) -> np.ndarray:
 
 
 def differs(a: np.ndarray, b: np.ndarray) -> bool:
-    return a.shape != b.shape or float(np.abs(a - b).mean()) > DIFF_THRESHOLD
+    return a.shape != b.shape or int((np.abs(a - b) > DIFF_LEVEL).sum()) >= DIFF_PIXELS
 
 
 def looks_blank(img: np.ndarray) -> bool:

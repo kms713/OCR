@@ -11,7 +11,7 @@ ebook_capture.py 로 찍은 page_0001.png ... 폴더를 읽어 본문 글자만 
        그 안에서 읽힌 글자(그림 속 글씨·잡음)는 버립니다.
     2) 머리말·꼬리말·쪽 번호 제거: 위·아래 가장자리에서 여러 쪽에 반복되는 줄과 숫자뿐인 줄을 뺍니다.
     3) 문단 복원: 화면 폭 때문에 생긴 줄바꿈을 이어 붙이고, 들여쓰기·줄 간격·문장 끝으로 문단을 나눕니다.
-       쪽이 바뀌며 끊긴 문장도 이어 붙입니다. 본문보다 큰 글자 줄은 제목(##)으로 표시합니다.
+       쪽이 바뀌며 끊긴 문장도 이어 붙입니다. 마지막에 한국어 띄어쓰기를 교정합니다 (Kiwi). 본문보다 큰 글자 줄은 제목(##)으로 표시합니다.
        본문보다 작은 글자 줄은 각주로 보고 '> 주:' 로 따로 적어 본문 문장이 끊기지 않게 합니다.
     4) 쪽마다 인식 결과를 캐시에 저장하므로, 중간에 멈춰도 다시 실행하면 이어서 합니다.
 
@@ -51,6 +51,8 @@ CACHE_VERSION = 1
 
 # 문장이 끝났다고 볼 끝 글자
 SENTENCE_END = re.compile(r"[.?!…。」』\"”’')\]>:;]$")
+# 쪽 번호가 붙은 짧은 머리말·꼬리말: "4 | 프롤로그", "1장 시작하며 23"
+FOOTER = re.compile(r"^\d{1,4}\s*[|│ㅣ·\-–—]?\s*\S.{0,40}$|^.{0,40}\S\s*[|│ㅣ·\-–—]?\s*\d{1,4}$")
 # 각주 표시 기호만 있는 줄
 NOTE_MARK = re.compile(r"^[\s•·∙●*※†‡]+$")
 # 숫자뿐인 줄 (쪽 번호·진행률): 12 / - 12 - / 12 / 300 / 12쪽 / 37%
@@ -176,7 +178,7 @@ def _norm_key(text: str) -> str:
 
 
 def strip_headers(pages: list[Page], band: float) -> None:
-    """위·아래 가장자리(band 비율) 줄 중 쪽 번호이거나 여러 쪽에 반복되는 줄을 뺀다."""
+    """위·아래 가장자리(band 비율) 줄 중 쪽 번호, 쪽 번호가 붙은 짧은 줄, 여러 쪽에 반복되는 줄을 뺀다."""
     def edge(p: Page, r: Row) -> bool:
         return r.box[3] <= p.height * band or r.box[1] >= p.height * (1 - band)
 
@@ -187,7 +189,8 @@ def strip_headers(pages: list[Page], band: float) -> None:
     limit = max(3, int(0.2 * len(pages)))
     repeated = {k for k, c in counts.items() if c >= limit}
     for p in pages:
-        p.rows = [r for r in p.rows if not (edge(p, r) and (PAGE_NO.match(r.text) or _norm_key(r.text) in repeated))]
+        p.rows = [r for r in p.rows if not (edge(p, r) and (
+            PAGE_NO.match(r.text) or FOOTER.match(r.text) or _norm_key(r.text) in repeated))]
 
 
 # ----------------------------------------------------------------------------
@@ -204,7 +207,8 @@ class Para:
 
 
 HANGUL = "\uac00-\ud7a3"
-WRAP_CHAR = False  # True: 뷰어가 단어 중간에서 줄을 바꿈 → 한글끼리 이어질 때 띄우지 않음 (--wrap char)
+WRAP_CHAR = False  # True: 한글끼리 이어지는 줄은 붙여 쓴다 (--wrap char, 띄어쓰기 교정을 켜면 기본)
+SOFT = "\u2060"  # 붙여 이은 줄 경계 표시 (띄어쓰기 교정이 이 자리를 판단하고, 저장 전에 지운다)
 
 
 def join_text(a: str, b: str) -> str:
@@ -216,7 +220,7 @@ def join_text(a: str, b: str) -> str:
     if re.search(r"[A-Za-z]-$", a) and re.match(r"[a-z]", b):
         return a[:-1] + b
     if WRAP_CHAR and re.search(f"[{HANGUL}][\"'’”)」』〉》]?$", a) and re.match(f"[\"'‘“(「『〈《]?[{HANGUL}]", b):
-        return a + b
+        return a + SOFT + b
     return f"{a} {b}"
 
 
@@ -229,14 +233,19 @@ def book_metrics(pages: list[Page]) -> tuple[float, float]:
     return lh, pitch
 
 
-def page_paragraphs(p: Page, lh: float, pitch: float) -> list[Para]:
+def page_margins(p: Page) -> tuple[float, float] | None:
+    """쪽의 본문 왼쪽·오른쪽 끝. 줄이 적으면 믿을 수 없어 None."""
+    if len(p.rows) < 3:
+        return None
+    return float(np.percentile([r.box[0] for r in p.rows], 10)), float(np.percentile([r.box[2] for r in p.rows], 90))
+
+
+def page_paragraphs(p: Page, lh: float, pitch: float, book_margins: tuple[float, float] | None) -> list[Para]:
     rows = p.rows
     if not rows:
         return []
-    xs1 = [r.box[0] for r in rows]
-    xs2 = [r.box[2] for r in rows]
-    left = float(np.percentile(xs1, 10)) if len(rows) >= 3 else min(xs1)
-    right = float(np.percentile(xs2, 90)) if len(rows) >= 3 else max(xs2)
+    # 줄이 적은 쪽은 책 전체의 여백을 쓴다 (한 줄짜리 쪽이 '꽉 찬 줄'로 보여 다음 쪽과 잘못 이어지지 않게)
+    left, right = page_margins(p) or book_margins or (min(r.box[0] for r in rows), max(r.box[2] for r in rows))
 
     paras: list[Para] = []
     cur: Para | None = None  # 지금 이어 붙이는 본문 문단
@@ -253,7 +262,12 @@ def page_paragraphs(p: Page, lh: float, pitch: float) -> list[Para]:
                 paras.append(note)
             continue
         note = None
-        heading = r.h > 1.2 * lh
+        # 큰 글자 줄 = 제목. 단, 마침표로 끝나는 줄은 본문 (짧은 줄은 글상자가 커 보일 때가 있음)
+        heading = r.h > 1.3 * lh and not r.text.rstrip().endswith(".")
+        if heading and cur is not None and cur.heading and prev is not None and r.box[1] - prev.box[3] < r.h:
+            cur.text = f"{cur.text} {r.text}"  # 두 줄로 된 제목은 한 제목으로
+            prev = r
+            continue
         indent = r.box[0] - left > 0.6 * lh
         gap = prev is not None and r.box[1] - prev.box[1] > 1.6 * pitch
         prev_short = prev is not None and prev.box[2] < right - 2 * lh and SENTENCE_END.search(prev.text)
@@ -277,10 +291,12 @@ def page_paragraphs(p: Page, lh: float, pitch: float) -> list[Para]:
 
 def build_paragraphs(pages: list[Page]) -> list[Para]:
     lh, pitch = book_metrics(pages)
+    ms = [m for m in map(page_margins, pages) if m is not None]
+    book_margins = (float(np.median([m[0] for m in ms])), float(np.median([m[1] for m in ms]))) if ms else None
     out: list[Para] = []
     last_text: Para | None = None  # 마지막 본문 문단 (그 뒤에 각주가 와도 이어 붙일 수 있게)
     for p in pages:
-        paras = page_paragraphs(p, lh, pitch)
+        paras = page_paragraphs(p, lh, pitch, book_margins)
         first = next((x for x in paras if not x.note), None)
         if first is not None and last_text is not None and last_text.open_end and first.cont_start:
             last_text.text = join_text(last_text.text, first.text)
@@ -294,6 +310,57 @@ def build_paragraphs(pages: list[Page]) -> list[Para]:
     return out
 
 
+SPACING_MIN_RUN = 6  # 띄어쓰기 없이 이만큼 이상 붙은 덩어리만 교정 (짧은 낱말·합성어는 그대로)
+
+
+def merge_spaces(marked: str, fixed: str) -> str:
+    """교정 결과에서 '새로 넣은 띄어쓰기'만 가져온다. 있던 띄어쓰기는 지우지 않고,
+    짧은 덩어리(전자책, 인공지능의, 제1장 등)는 쪼개지 않는다. 붙여 이은 줄 경계(SOFT)는 길이와 상관없이 따른다."""
+    orig, soft = "", set()
+    for c in marked:
+        if c == SOFT:
+            soft.add(len(orig))
+        else:
+            orig += c
+    if orig.replace(" ", "") != fixed.replace(" ", ""):
+        return orig  # 글자가 바뀌었으면 손대지 않음
+    inserts: set[int] = set()  # orig 의 이 위치 앞에 띄어쓰기를 넣을 후보
+    i = j = 0
+    while i < len(orig) and j < len(fixed):
+        if orig[i] == fixed[j]:
+            i += 1
+            j += 1
+        elif fixed[j] == " ":
+            inserts.add(i)
+            j += 1
+        else:  # orig[i] == " " (교정기가 지운 띄어쓰기) → 그대로 둠
+            i += 1
+    # 덩어리 = 띄어쓰기와 줄 경계 사이. 긴 덩어리 안쪽 또는 줄 경계에만 띄어쓰기를 넣는다
+    bounds = sorted({0, len(orig)} | soft | {m.start() for m in re.finditer(" ", orig)}
+                    | {m.end() for m in re.finditer(" ", orig)})
+    long_pos = set()
+    for a, b in zip(bounds, bounds[1:]):
+        if b - a >= SPACING_MIN_RUN and " " not in orig[a:b]:
+            long_pos.update(range(a + 1, b))
+    ok = inserts & (soft | long_pos)
+    return "".join((" " if i in ok else "") + c for i, c in enumerate(orig))
+
+
+def fix_spacing(paras: list[Para]) -> None:
+    """한국어 띄어쓰기 교정 (Kiwi). OCR 이 빠뜨린 띄어쓰기만 넣고, 있는 띄어쓰기는 지우지 않는다."""
+    try:
+        from kiwipiepy import Kiwi
+    except ImportError:
+        print("[알림] kiwipiepy 가 없어 띄어쓰기 교정을 건너뜁니다 (설치.bat 를 다시 실행하면 설치됩니다).")
+        return
+    print("띄어쓰기 교정 중...")
+    kiwi = Kiwi()
+    targets = [x for x in paras if re.search(f"[{HANGUL}]", x.text)]
+    plain = [x.text.replace(SOFT, "") for x in targets]
+    for x, fixed in zip(targets, kiwi.space(plain, reset_whitespace=False)):
+        x.text = merge_spaces(x.text, fixed)
+
+
 # ----------------------------------------------------------------------------
 # 4) 저장
 # ----------------------------------------------------------------------------
@@ -301,6 +368,7 @@ def write_markdown(paras: list[Para], path: Path, title: str, page_marks: bool) 
     lines = [f"# {title}", ""]
     last_page = None
     for para in paras:
+        para.text = para.text.replace(SOFT, "")
         if page_marks and para.page != last_page:
             lines += [f"<!-- p.{para.page} -->", ""]
             last_page = para.page
@@ -337,14 +405,15 @@ def parse_args(argv=None):
     ap.add_argument("-o", "--output", help="결과 폴더 (기본: <폴더>_OCR)")
     ap.add_argument("--title", help="책 제목 (기본: 폴더 이름)")
     ap.add_argument("--page-marks", action="store_true", help="Markdown 에 <!-- p.N --> 쪽 표시 넣기")
-    ap.add_argument("--wrap", choices=["word", "char"], default="word",
-                    help="뷰어의 줄바꿈 방식: word(기본, 단어 단위 → 줄 사이를 띄어 씀) | "
-                         "char(단어 중간에서도 줄을 바꿈 → 한글끼리는 붙여 씀)")
+    ap.add_argument("--no-spacing", action="store_true", help="한국어 띄어쓰기 교정(Kiwi) 끄기")
+    ap.add_argument("--wrap", choices=["word", "char"],
+                    help="줄 이을 때: word(띄어 씀) | char(한글끼리 붙여 씀). "
+                         "기본: 띄어쓰기 교정을 켜면 char(교정기가 필요한 곳만 띄움), 끄면 word")
     ap.add_argument("--keep-pictures", action="store_true", help="그림 판정을 끄고 모든 글자 유지")
     ap.add_argument("--picture-fill", type=float, default=0.12,
                     help="그림 판정 채움 비율 (기본 0.12, 낮출수록 선 그림까지 그림으로 봄)")
-    ap.add_argument("--header-band", type=float, default=0.08,
-                    help="머리말·꼬리말로 볼 위·아래 가장자리 비율 (기본 0.08)")
+    ap.add_argument("--header-band", type=float, default=0.1,
+                    help="머리말·꼬리말로 볼 위·아래 가장자리 비율 (기본 0.1)")
     ap.add_argument("--keep-headers", action="store_true", help="머리말·꼬리말·쪽 번호 제거 끄기")
     ap.add_argument("--min-score", type=float, default=0.5, help="이 신뢰도 미만 글상자는 버림 (기본 0.5)")
     ap.add_argument("--redo", action="store_true", help="캐시를 무시하고 모든 쪽을 다시 인식")
@@ -357,7 +426,7 @@ def parse_args(argv=None):
 def main(argv=None) -> int:
     global WRAP_CHAR
     args = parse_args(argv)
-    WRAP_CHAR = args.wrap == "char"
+    WRAP_CHAR = (args.wrap or ("word" if args.no_spacing else "char")) == "char"
     folder = Path(args.folder)
     if not folder.is_dir():
         print(f"[오류] 폴더가 없습니다: {folder}")
@@ -405,6 +474,8 @@ def main(argv=None) -> int:
     if not args.keep_headers:
         strip_headers(pages, args.header_band)
     paras = build_paragraphs(pages)
+    if not args.no_spacing:
+        fix_spacing(paras)
     md = out_dir / f"{title}.md"
     write_markdown(paras, md, title, args.page_marks)
 
