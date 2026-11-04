@@ -2,6 +2,7 @@
 .venv/
 .venv_lite/
 .venv_onnx/
+.venv_gpu/
 build/
 build_lite/
 dist/
@@ -19,3 +20,4 @@ ocr_console.txt
 ocr_crash.txt
 cpu_check.txt
 onnx_report.txt
+gpu_check.txt
