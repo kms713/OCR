@@ -429,7 +429,9 @@ def find_boxes(norm: np.ndarray) -> list[list[int]]:
 
     h, w = norm.shape
     s = w / REF_WIDTH
-    ink = (norm < 160).astype(np.uint8)
+    # 선으로 볼 밝기: 뒷면 비침 판정 기준(--filter-level 기본 180)과 같게 둔다.
+    # 160으로 두면 얇은 회색 테두리(밝기 165 안팎) 박스를 놓친다 (실제 시험지 2종에서 확인)
+    ink = (norm < 180).astype(np.uint8)
     # 길게 이어진 획만 남겨 선을 찾는다 (글자 획은 짧아서 사라짐). 스캔 끊김·기울기는 닫기로 메운다
     hor = cv2.morphologyEx(ink, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (max(15, int(80 * s)), 1)))
     hor = cv2.morphologyEx(hor, cv2.MORPH_CLOSE,
