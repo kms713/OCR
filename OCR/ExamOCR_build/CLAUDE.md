@@ -17,7 +17,7 @@
 - 저사양판 판정 기준: 기본판 결과와 글자 일치율 99% 이상, 빠진 줄 0, 속도 쪽당 5분 이하.
 
 ## 고치는 곳
-- 이 폴더(`OCR/ExamOCR_build/`)만 고친다. `OCR_AVX/`, `OCR/ocr_paddle.py`는 이전 버전 백업이다.
+- 시험지 OCR은 이 폴더(`OCR/ExamOCR_build/`)만 고친다. 판별 파일 구성은 저장소 맨 위 `README.md`.
 - `ocr_paddle.py` 하나를 기본판·저사양판·전자책 OCR(`EbookOCR/ebook_ocr.py`)이 함께 쓴다.
   고칠 때 `to_items`, `group_rows`, `build_ocr`, `default_options`, `load_image`의 모양을 바꾸면 전자책 쪽도 확인한다.
 - `models/`, `models_onnx/`, `.venv*`, `dist/`, `installer*/`는 빌드 bat이 만든다. 저장소에 넣지 않는다.

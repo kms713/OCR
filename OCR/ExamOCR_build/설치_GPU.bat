@@ -34,7 +34,7 @@ echo [3/3] 그래픽카드 사용 점검 중...
 %PY% -c "import paddle; paddle.utils.run_check()" > gpu_check.txt 2>&1
 type gpu_check.txt
 echo.
-echo 설치 완료. 이제 GPU_비교시험.bat 를 실행하세요.
+echo 설치 완료. 이제 GPU_실행.bat 를 실행하세요.
 pause
 exit /b 0
 
