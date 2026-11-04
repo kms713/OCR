@@ -435,6 +435,7 @@ def main(argv=None) -> int:
     ocr = None
     started = time.monotonic()
     done_now = 0
+    ocr_sec = 0.0  # 글자 인식에만 쓴 시간 (엔진 준비 시간 제외)
     for no, f in enumerate(files, start=1):
         cf = cache / f"{f.stem}.json"
         if not args.redo and cf.is_file() and cf.stat().st_mtime >= f.stat().st_mtime:
@@ -450,7 +451,9 @@ def main(argv=None) -> int:
         if ocr is None:
             print("OCR 엔진 준비 중... (처음엔 모델을 내려받아 시간이 걸립니다)")
             ocr = op.build_ocr(op.default_options(device=args.device, engine=args.engine, no_mkldnn=args.no_mkldnn))
+        t0 = time.monotonic()
         p = ocr_image(ocr, op.load_image(f), no, f.name, args)
+        ocr_sec += time.monotonic() - t0
         d = page_to_json(p)
         d.update(min_score=args.min_score, keep_pictures=args.keep_pictures, picture_fill=args.picture_fill)
         cf.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
@@ -460,6 +463,13 @@ def main(argv=None) -> int:
         print(f"\r  {no}/{len(files)}쪽 인식 ({el / done_now:.1f}초/쪽)", end="", flush=True)
     if done_now:
         print()
+        # 속도 비교용 기록 (CPU·그래픽카드 비교 등). 이번에 새로 인식한 쪽만 센다
+        import platform
+        (out_dir / "처리시간.txt").write_text(
+            f"장치: {args.device}  엔진: {args.engine}  PC: {platform.processor() or platform.machine()}\n"
+            f"이번에 인식한 쪽: {done_now}쪽 (캐시에서 읽은 쪽 제외)\n"
+            f"인식 시간: {ocr_sec:.1f}초, 쪽당 {ocr_sec / done_now:.2f}초 (엔진 준비 시간 제외)\n"
+            f"전체 걸린 시간: {time.monotonic() - started:.1f}초\n", encoding="utf-8")
 
     write_raw(pages, out_dir / f"{title}.txt")
     if not args.keep_headers:
