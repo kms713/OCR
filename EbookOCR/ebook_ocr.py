@@ -40,8 +40,9 @@ from pathlib import Path
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-# ocr_paddle.py 는 이 폴더에 복사해 두거나, 저장소의 시험지 OCR 폴더에서 가져온다
-for _d in (HERE, HERE.parent / "OCR" / "ExamOCR_build"):
+# ocr_paddle.py 는 저장소의 시험지 OCR 폴더 것을 먼저 쓴다 (늘 최신).
+# 이 폴더만 따로 옮겨 그 폴더가 없을 때만 이 폴더에 복사해 둔 것을 쓴다 (오래된 복사본이 최신판을 가리지 않게)
+for _d in (HERE.parent / "OCR" / "ExamOCR_build", HERE):
     if (_d / "ocr_paddle.py").is_file():
         sys.path.insert(0, str(_d))
         break
@@ -126,21 +127,11 @@ def inside(box: list[int], region: list[int]) -> bool:
 
 
 def group_rows(items) -> list[Row]:
-    """글상자를 줄로 묶는다 (ocr_paddle.group_lines 와 같은 기준, 줄 좌표를 함께 남김)."""
-    rows: list[list] = []
-    for it in sorted(items, key=lambda x: (x.cy, x.box[0])):
-        if rows:
-            row = rows[-1]
-            row_cy = np.mean([r.cy for r in row])
-            row_h = np.mean([r.h for r in row])
-            if abs(it.cy - row_cy) <= 0.5 * min(row_h, it.h):
-                row.append(it)
-                continue
-        rows.append([it])
+    """글상자를 줄로 묶는다. 묶는 기준은 시험지 OCR(ocr_paddle.group_rows) 그대로 쓰고, 줄 좌표를 함께 남긴다."""
+    import ocr_paddle as op
 
     out = []
-    for row in rows:
-        row.sort(key=lambda x: x.box[0])
+    for row in op.group_rows(items):
         text = " ".join(it.text.strip() for it in row)
         box = [min(it.box[0] for it in row), min(it.box[1] for it in row),
                max(it.box[2] for it in row), max(it.box[3] for it in row)]
