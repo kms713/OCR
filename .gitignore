@@ -21,3 +21,6 @@ ocr_crash.txt
 cpu_check.txt
 onnx_report.txt
 gpu_check.txt
+
+# 시험지 비교 시험 폴더 (시험지 PDF가 들어가므로 저장소에 올리지 않음)
+gpu_test/
