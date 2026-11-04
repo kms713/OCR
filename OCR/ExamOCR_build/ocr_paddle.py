@@ -573,8 +573,10 @@ def build_ocr(args):
         except Exception:
             pass
         return PaddleOCR(**kwargs)
-    if args.device != "auto":
-        kwargs["device"] = args.device
+    # 장치: 옵션이 auto면 환경변수 EXAMOCR_DEVICE(그래픽카드판 실행 bat이 gpu로 지정)를 따른다
+    device = args.device if args.device != "auto" else os.environ.get("EXAMOCR_DEVICE", "auto")
+    if device != "auto":
+        kwargs["device"] = device
     if args.no_mkldnn:
         kwargs["enable_mkldnn"] = False
     return PaddleOCR(**kwargs)

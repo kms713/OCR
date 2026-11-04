@@ -76,7 +76,9 @@ def engine_name() -> str:
 
 
 def app_title() -> str:
-    return APP_TITLE + (" (저사양용)" if engine_name() == "onnx" else "")
+    if engine_name() == "onnx":
+        return APP_TITLE + " (저사양용)"
+    return APP_TITLE + (" (그래픽카드)" if os.environ.get("EXAMOCR_DEVICE", "").startswith("gpu") else "")
 
 
 def RUNNING_FLAG() -> Path:
