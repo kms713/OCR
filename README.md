@@ -1,7 +1,7 @@
 # 시험지 OCR · 전자책 OCR
 
 스캔한 시험지(PDF·사진)를 한글 파일(`원본이름_OCR.hwpx`)로, 전자책 화면을 Markdown으로 바꾸는 프로그램입니다.
-진행 상황과 시험 결과는 `작업현황.md`, 고칠 때 지킬 규칙은 `OCR/ExamOCR_build/CLAUDE.md`에 있습니다.
+구조·알고리즘·검증 방법은 `SPEC.md`, 진행 상황과 시험 결과는 `작업현황.md`, 고칠 때 지킬 규칙은 `OCR/ExamOCR_build/CLAUDE.md`에 있습니다.
 
 ## 판별 파일
 
