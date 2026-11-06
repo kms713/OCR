@@ -24,6 +24,7 @@ ebook_capture.py 로 찍은 page_0001.png ... 폴더를 읽어 본문 글자만 
 출력
     <결과폴더>/<책이름>.md      AI 지식에 넣을 최종본 (문단 단위)
     <결과폴더>/<책이름>.txt     쪽별 원문 줄 (검토용, 쪽 구분선 포함)
+    <결과폴더>/<책이름>_교정용.md  쪽 표시(<!-- p.N -->)가 든 본 (ebook_review.py 교정 편집기의 시작 파일)
     <결과폴더>/cache/           쪽별 인식 결과 (이어 하기용)
 """
 
@@ -479,6 +480,8 @@ def main(argv=None) -> int:
         fix_spacing(paras)
     md = out_dir / f"{title}.md"
     write_markdown(paras, md, title, args.page_marks)
+    # 교정 편집기(ebook_review.py)용: 같은 문단에 <!-- p.N --> 쪽 표시를 넣은 본. 위 최종본은 그대로 둔다.
+    write_markdown(paras, out_dir / f"{title}_교정용.md", title, True)
 
     n_pic = sum(len(p.pictures) for p in pages)
     chars = sum(len(x.text) for x in paras)

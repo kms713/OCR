@@ -29,6 +29,7 @@
 ### 1.2 전자책 OCR (부가 도구)
 - LD플레이어(안드로이드 에뮬레이터)로 연 전자책을 ADB로 한 쪽씩 넘기며 캡처 → 글자만 뽑아 Markdown 한 파일로.
 - 용도: 개인 학습용. 결과 `책이름.md`를 NotebookLM·Claude 등 AI 지식 도구에 넣어 요약.
+- 교정·그림 삽입(2026-11 추가): 원본 쪽 이미지와 OCR 글을 브라우저에서 나란히 보며 고치고, 결과물 2종을 만든다 (§11.1).
 
 ---
 
@@ -71,7 +72,9 @@ OCR/ExamOCR_build/         ← 시험지 OCR. 모든 판의 코드가 여기 하
 EbookOCR/                  ← 전자책 OCR
   ebook_capture.py         ADB 캡처
   ebook_ocr.py             이미지 폴더 → Markdown
-  설치.bat, 1_캡처점검.bat, 2_캡처.bat, 3_OCR.bat, 설치_GPU.bat, 3_OCR_GPU.bat
+  ebook_review.py/.html    교정 편집기 (브라우저, 표준 라이브러리 서버)
+  ebook_export.py          교정 글 → 완성본 docx + AI용 md
+  설치.bat, 1_캡처점검.bat, 2_캡처.bat, 3_OCR.bat, 4_교정.bat, 5_내보내기.bat, 설치_GPU.bat, 3_OCR_GPU.bat
 ```
 
 빌드 때 생기는 `.venv*`, `models/`, `models_onnx/`, `build*/`, `dist/`, `installer*/`는 저장소에 넣지 않습니다.
@@ -252,8 +255,28 @@ class PageResult:
 - 엔진: `ocr_paddle.py`를 저장소 경로(`../OCR/ExamOCR_build`)에서 먼저 찾고, 없을 때만 자기 폴더의 복사본을 씀.
 - 처리: 그림 영역 제외(`picture_regions`, `--picture-fill 0.12`) → 줄 묶기(`ocr_paddle.group_rows`) → 머리말·꼬리말·쪽 번호 제거(`strip_headers`, 위·아래 10%) → 문단 복원(`build_paragraphs`: 줄바꿈 잇기, 들여쓰기·줄 간격·문장 끝, 쪽 넘김 문장 잇기) → 큰 글자 줄은 `##` 제목, 작은 글자 줄은 `> 주:` 각주 → Kiwi 띄어쓰기 보충(`fix_spacing`, 있던 띄어쓰기는 지우지 않음).
 - 쪽별 결과 캐시 `결과/cache/*.json` (이어 하기). `--redo`로 무시.
-- 출력: `책이름.md`, `책이름.txt`(쪽별 원문), `처리시간.txt`(장치, 쪽 수, 쪽당 인식 시간).
+- 출력: `책이름.md`, `책이름.txt`(쪽별 원문), `책이름_교정용.md`(같은 문단에 `<!-- p.N -->` 쪽 표시), `처리시간.txt`(장치, 쪽 수, 쪽당 인식 시간).
 - 주의: kiwipiepy가 없으면 띄어쓰기 교정을 조용히 건너뜀(알림만 출력). 설치가 오래된 PC에서 띄어쓰기가 붙어 나온 사례 있음 → `설치.bat` 재실행.
+
+### 11.1 교정·내보내기 (2026-11 추가)
+**흐름**: `3_OCR.bat` → `4_교정.bat`(`ebook_review.py`) → `5_내보내기.bat`(`ebook_export.py`).
+
+**교정 편집기** (`ebook_review.py` + `ebook_review.html`)
+- `http.server`, `127.0.0.1`만, Host 검사(DNS rebinding 방지), 쓰기(PUT/POST)는 `X-Ebook-Review: 1` 머리글 필요. 외부 CDN 없음.
+- 작업 파일 `책이름_교정.md`: 처음 열 때 `_교정용.md`를 복사해 만들고 이후 **절대 덮어쓰지 않음**(OCR 재실행에도). 저장 때 `.md.bak` 한 벌.
+- 쪽 번호 = 정렬된 이미지의 1부터 순번 (`ebook_ocr.collect_pages`와 같은 규칙. 바꾸면 둘 다 고칠 것). 글↔쪽 연동은 커서 위쪽 가장 가까운 `<!-- p.N -->`. 쪽을 넘어 이어 붙은 문단은 시작 쪽만 표시됨.
+- 이미지 위 줄 상자·신뢰도(<0.8 강조)·그림 후보는 `cache/*.json`의 `rows`·`pictures` 사용. 줄을 누르면 글에서 부분 문자열 검색.
+- API: `GET /api/book`, `/api/suspects`, `/api/rows/N`, `/img/N`, `/figures/이름`, `PUT /api/md`, `POST /api/crop {page, box}`. 그림은 **원본 이미지**에서 잘라 `책이름_OCR/figures/pNNNN_KK.png`.
+- 그림 줄: `![설명](figures/…png)` 한 줄. 문단 끝(다음 빈 줄 앞)에 삽입.
+
+**내보내기** (`ebook_export.py`) — 교정 글 하나에서 2종
+| | `책이름_완성본.docx` (python-docx) | `책이름_AI용.md` |
+|---|---|---|
+| 그림 | 이미지 삽입(최대 14cm) + 설명 캡션(`--no-caption`) | 이미지·링크 없음. `> [그림] 설명`, 설명이 없으면 `> [그림] (설명 없음 — 원본 N쪽)` |
+| 쪽 표시 | 없음 | 기본 없음, `--page-marks`면 `[p.N]` 줄 |
+- Markdown은 그림을 링크로만 가리키고 AI 지식 도구는 이를 읽지 못하므로 AI용에는 넣지 않음. 설명 없는 그림·없는 파일은 끝에 경고.
+- docx: A4, 맑은 고딕(East-Asian 지정), 제목/제목1~3, `> 주:`는 작은 회색 들여쓰기. 줄바꿈된 줄은 각각 문단.
+- 한계: 한글(HWPX) 직접 저장은 안 함(python-hwpx 그림 삽입 미확인). 한글은 docx를 열어 저장. Windows·한글·Word에서 열어 본 확인은 아직 없음.
 
 ---
 
@@ -303,7 +326,7 @@ class PageResult:
 | 처음 보는 시험지 검증 | 다른 출판사·형식 10~20종 | 판정 기준 §2 |
 | 통합 설치 파일 | AVX 자동 판정으로 일반·저사양 중 맞는 판 설치, VC++ 런타임 동봉, 파일 이름에 날짜·버전 | 현재 두 판 따로 |
 | 화면 편의 | 파일 끌어다 놓기, 중지한 작업 이어하기 (중지 버튼은 있음) | |
-| 검수 화면 | `[?]` 글자를 원본 조각 옆에 보여 주고 바로 고치기 | `--json`의 좌표 활용 |
+| 검수 화면 | `[?]` 글자를 원본 조각 옆에 보여 주고 바로 고치기 | 시험지 쪽. 전자책 쪽은 §11.1로 구현 |
 | 문항 단위 구조화 | 문항 번호·지문·보기를 나눠 저장 | 별도 프로젝트 규모 |
 
 ---

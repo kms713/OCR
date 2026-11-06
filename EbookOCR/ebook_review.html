@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>전자책 OCR 교정</title>
+<style>
+  :root { --bg:#f4f5f7; --panel:#fff; --line:#d5d8de; --ink:#1d2330; --muted:#667085; --accent:#2f6fed;
+          --low:#e5484d; --pic:#2f6fed; --ok:#2e9b5f; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171c; --panel:#1c2027; --line:#323844; --ink:#e6e9ef; --muted:#9aa3b2; --accent:#6a9bff; }
+  }
+  * { box-sizing:border-box; }
+  html, body { height:100%; margin:0; }
+  body { display:flex; flex-direction:column; background:var(--bg); color:var(--ink);
+         font:14px/1.5 "Malgun Gothic","맑은 고딕","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif; }
+  header { display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center; padding:8px 12px; background:var(--panel);
+           border-bottom:1px solid var(--line); }
+  header h1 { font-size:15px; margin:0 8px 0 0; }
+  button, input[type=text], input[type=number] { font:inherit; color:inherit; background:var(--panel); border:1px solid var(--line);
+           border-radius:6px; padding:4px 10px; }
+  button { cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:default; }
+  input[type=number] { width:70px; }
+  .sep { width:1px; align-self:stretch; background:var(--line); margin:0 4px; }
+  .grow { flex:1; }
+  #status { color:var(--muted); font-size:13px; min-width:90px; text-align:right; }
+  #status.err { color:var(--low); }
+  main { flex:1; min-height:0; display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:8px; }
+  @media (max-width: 800px) { main { grid-template-columns:1fr; grid-template-rows:1fr 1fr; } }
+  section { min-height:0; min-width:0; background:var(--panel); border:1px solid var(--line); border-radius:8px;
+            display:flex; flex-direction:column; overflow:hidden; }
+  .bar { display:flex; align-items:center; gap:6px; padding:6px 10px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .bar span.t { font-weight:600; }
+  #imgwrap { flex:1; overflow:auto; position:relative; background:var(--bg); }
+  #stage { position:relative; margin:0 auto; line-height:0; }
+  #stage img { width:100%; display:block; user-select:none; -webkit-user-drag:none; }
+  #overlay { position:absolute; inset:0; }
+  .rbox { position:absolute; border:1.5px solid rgba(47,111,237,.55); background:rgba(47,111,237,.07); cursor:pointer; }
+  .rbox.low { border-color:var(--low); background:rgba(229,72,77,.18); }
+  .rbox.cur { outline:3px solid #f5a524; outline-offset:1px; }
+  .pbox { position:absolute; border:2px dashed var(--pic); background:rgba(47,111,237,.06); cursor:copy; }
+  .pbox::after { content:"그림?"; position:absolute; left:0; top:0; font:11px/1 sans-serif; padding:2px 4px; background:var(--pic); color:#fff; }
+  #sel { position:absolute; border:2px solid var(--ok); background:rgba(46,155,95,.18); pointer-events:none; }
+  #imgwrap.crop #overlay { cursor:crosshair; }
+  #editor { flex:1; width:100%; border:0; padding:12px 14px; resize:none; outline:none; background:var(--panel); color:var(--ink);
+            font:15px/1.7 "Malgun Gothic","맑은 고딕","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif; tab-size:4; }
+  #mirror { position:absolute; visibility:hidden; white-space:pre-wrap; overflow-wrap:break-word; padding:12px 14px; border:0;
+            font:15px/1.7 "Malgun Gothic","맑은 고딕","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif; }
+  dialog { border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--ink); padding:16px 18px; max-width:min(560px, 92vw); }
+  dialog::backdrop { background:rgba(0,0,0,.35); }
+  dialog h2 { margin:0 0 8px; font-size:15px; }
+  dialog textarea { width:100%; min-height:80px; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+  dialog .row { display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
+  #thumb { max-width:100%; max-height:200px; border:1px solid var(--line); margin-bottom:8px; }
+  #figlist { max-height:50vh; overflow:auto; margin:0; padding:0; list-style:none; }
+  #figlist li { padding:6px 4px; border-bottom:1px solid var(--line); cursor:pointer; }
+  #figlist li:hover { background:var(--bg); }
+  .warn { color:var(--low); font-weight:600; }
+  kbd { border:1px solid var(--line); border-radius:4px; padding:0 4px; font-size:12px; background:var(--bg); }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">전자책 OCR 교정</h1>
+  <button id="prev" title="이전 쪽 (Alt+←)">◀</button>
+  <input id="pageNo" type="number" min="1" value="1" title="쪽 번호">
+  <span id="pageTotal">/ 0</span>
+  <button id="next" title="다음 쪽 (Alt+→)">▶</button>
+  <span class="sep"></span>
+  <button id="toggleRows" class="on" title="이미지 위에 OCR이 읽은 줄 표시">줄 상자</button>
+  <button id="nextLow" title="신뢰도가 낮은 다음 줄로 이동 (Alt+L)">다음 의심 줄</button>
+  <span class="sep"></span>
+  <button id="cropMode" title="이미지에서 영역을 끌어 그림으로 넣기 (Alt+G)">그림 넣기 모드</button>
+  <button id="figs" title="넣은 그림 목록과 설명이 빠진 그림 점검">그림 목록</button>
+  <span class="sep"></span>
+  <button id="zoomOut">－</button><button id="zoomFit" title="폭에 맞춤">맞춤</button><button id="zoomIn">＋</button>
+  <span class="grow"></span>
+  <span id="status">불러오는 중…</span>
+  <button id="saveNow" title="바로 저장 (Ctrl+S)">저장</button>
+</header>
+<main>
+  <section>
+    <div class="bar"><span class="t" id="imgTitle">원본 이미지</span><span id="imgHint" style="color:var(--muted)"></span></div>
+    <div id="imgwrap"><div id="stage"><img id="pageImg" alt="원본 쪽 이미지"><div id="overlay"></div><div id="sel" hidden></div></div></div>
+  </section>
+  <section>
+    <div class="bar"><span class="t">교정 글</span>
+      <span style="color:var(--muted)">커서가 있는 곳의 쪽이 왼쪽에 나옵니다. <code>&lt;!-- p.N --&gt;</code> 줄은 지우지 마세요.</span>
+      <span class="grow"></span>
+      <input id="findText" type="text" placeholder="찾기" size="10"><input id="replText" type="text" placeholder="바꿀 글" size="10">
+      <button id="findNext">찾기</button><button id="replAll">모두 바꾸기</button>
+    </div>
+    <textarea id="editor" spellcheck="false"></textarea>
+  </section>
+</main>
+<div id="mirror"></div>
+
+<dialog id="figDlg">
+  <h2>그림 넣기</h2>
+  <img id="thumb" alt="">
+  <div>이 그림을 글로 설명해 주세요. <b>AI용 텍스트에는 그림 대신 이 설명이 들어갑니다.</b></div>
+  <textarea id="figAlt" placeholder="예: 3단계 학습 과정을 보여주는 순서도. 입력 → 처리 → 출력 순으로 화살표가 이어진다."></textarea>
+  <div style="color:var(--muted);font-size:12px">비워 두면 &quot;설명 없음&quot;으로 표시되고, 내보낼 때 알려 드립니다.</div>
+  <div class="row"><button id="figCancel">취소</button><button id="figOk" class="on">넣기</button></div>
+</dialog>
+
+<dialog id="figListDlg">
+  <h2>그림 목록</h2>
+  <div id="figSummary"></div>
+  <ul id="figlist"></ul>
+  <div class="row"><button id="figListClose">닫기</button></div>
+</dialog>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const ed = $("editor"), img = $("pageImg"), stage = $("stage"), overlay = $("overlay"), wrap = $("imgwrap"), sel = $("sel");
+const MARK = /<!-- p\.(\d+) -->/g;
+let book = null, page = 1, zoom = 0 /* 0 = 폭에 맞춤 */, rowsData = {}, showRows = true, cropOn = false;
+let suspects = [], suspectPos = -1, curRow = -1, pendingBox = null, dirty = false, saveTimer = null, saving = false;
+
+function setStatus(t, err) { const s = $("status"); s.textContent = t; s.className = err ? "err" : ""; }
+async function api(path, opt) {
+  opt = opt || {};
+  opt.headers = Object.assign({ "X-Ebook-Review": "1" }, opt.headers || {});
+  const r = await fetch(path, opt);
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+
+// ---- 쪽 ↔ 글 위치 -----------------------------------------------------
+function markers() {
+  const out = []; let m; MARK.lastIndex = 0;
+  const t = ed.value;
+  while ((m = MARK.exec(t))) out.push({ no: +m[1], pos: m.index, end: m.index + m[0].length });
+  return out;
+}
+function pageAtCaret() {
+  const ms = markers(), c = ed.selectionStart;
+  let cur = null;
+  for (const m of ms) { if (m.pos <= c) cur = m; else break; }
+  return cur ? cur.no : (ms.length ? ms[0].no : 1);
+}
+function scrollEditorTo(pos) {
+  const mi = $("mirror");
+  mi.style.width = ed.clientWidth + "px";
+  mi.textContent = ed.value.slice(0, pos);
+  const span = document.createElement("span"); span.textContent = "|"; mi.appendChild(span);
+  ed.scrollTop = Math.max(0, span.offsetTop - ed.clientHeight / 3);
+}
+function focusPageText(no) {
+  const m = markers().find(x => x.no === no);
+  if (!m) return;
+  ed.focus({ preventScroll: true });
+  ed.setSelectionRange(m.end, m.end);
+  scrollEditorTo(m.end);
+}
+
+// ---- 이미지 -----------------------------------------------------------
+function applyZoom() {
+  if (!zoom) { stage.style.width = "100%"; return; }
+  stage.style.width = Math.round(zoom * 100) + "%";
+}
+async function showPage(no, opts) {
+  opts = opts || {};
+  no = Math.max(1, Math.min(book.pages.length, no));
+  const changed = no !== page || !img.src;
+  page = no; $("pageNo").value = no; $("pageTotal").textContent = "/ " + book.pages.length;
+  $("imgTitle").textContent = no + "쪽 — " + book.pages[no - 1].name;
+  if (changed) {
+    img.src = "/img/" + no;
+    sel.hidden = true; pendingBox = null; curRow = -1;
+    if (!opts.keepScroll) wrap.scrollTop = 0;
+    overlay.innerHTML = "";
+    if (!rowsData[no]) { try { rowsData[no] = await api("/api/rows/" + no); } catch (e) { rowsData[no] = { rows: [], pictures: [] }; } }
+    if (page === no) drawOverlay();
+  }
+  if (opts.moveText) focusPageText(no);
+}
+function drawOverlay() {
+  overlay.innerHTML = "";
+  const d = rowsData[page]; if (!d) return;
+  const W = d.width || img.naturalWidth, H = d.height || img.naturalHeight;
+  if (!W || !H) return;
+  const add = (cls, b, idx) => {
+    const e = document.createElement("div"); e.className = cls;
+    e.style.left = (b[0] / W * 100) + "%"; e.style.top = (b[1] / H * 100) + "%";
+    e.style.width = ((b[2] - b[0]) / W * 100) + "%"; e.style.height = ((b[3] - b[1]) / H * 100) + "%";
+    if (idx !== undefined) e.dataset.idx = idx;
+    overlay.appendChild(e); return e;
+  };
+  (d.pictures || []).forEach((b, i) => { const e = add("pbox", b); e.dataset.pic = i; e.title = "OCR이 그림으로 본 영역 — 누르면 이 영역을 그림으로 넣습니다"; });
+  if (showRows) d.rows.forEach((r, i) => {
+    const e = add("rbox" + (r.score < book.low_score ? " low" : "") + (i === curRow ? " cur" : ""), r.box, i);
+    e.title = r.text + "  (신뢰도 " + r.score.toFixed(2) + ")";
+  });
+}
+img.addEventListener("load", drawOverlay);
+
+// ---- 이미지 위의 줄 → 글 위치 찾기 ------------------------------------
+function findRowInText(no, text) {
+  const v = ed.value, ms = markers();
+  const i = ms.findIndex(m => m.no === no);
+  const from = i >= 0 ? ms[i].end : 0;
+  const to = i >= 0 && i + 1 < ms.length ? ms[i + 1].pos : v.length;
+  const region = v.slice(from, to).replace(/[⁠]/g, "");
+  const probes = [text, text.slice(0, 14), text.slice(-14), text.slice(0, 6)].filter(s => s && s.length >= 3);
+  for (const p of probes) {
+    const k = region.indexOf(p);
+    if (k >= 0) return { start: from + k, len: p.length };
+  }
+  return null;
+}
+function gotoRow(idx) {
+  const r = rowsData[page] && rowsData[page].rows[idx]; if (!r) return;
+  curRow = idx; drawOverlay();
+  const hit = findRowInText(page, r.text);
+  ed.focus({ preventScroll: true });
+  if (hit) { ed.setSelectionRange(hit.start, hit.start + hit.len); scrollEditorTo(hit.start); setStatus("해당 글을 찾았습니다"); }
+  else { focusPageText(page); setStatus("같은 글을 못 찾아 쪽 처음으로 이동 (고친 부분일 수 있음)"); }
+}
+
+// ---- 그림 영역 지정 ---------------------------------------------------
+function natural(ev) {
+  const r = stage.getBoundingClientRect();
+  const W = (rowsData[page] && rowsData[page].width) || img.naturalWidth, H = (rowsData[page] && rowsData[page].height) || img.naturalHeight;
+  const fx = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)), fy = Math.max(0, Math.min(1, (ev.clientY - r.top) / r.height));
+  return { x: fx * W, y: fy * H, fx, fy, W, H };
+}
+function showSel(a, b) {
+  const x1 = Math.min(a.fx, b.fx), x2 = Math.max(a.fx, b.fx), y1 = Math.min(a.fy, b.fy), y2 = Math.max(a.fy, b.fy);
+  sel.hidden = false;
+  sel.style.left = x1 * 100 + "%"; sel.style.top = y1 * 100 + "%"; sel.style.width = (x2 - x1) * 100 + "%"; sel.style.height = (y2 - y1) * 100 + "%";
+  return [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y)];
+}
+let dragStart = null;
+overlay.addEventListener("mousedown", ev => {
+  if (!cropOn) return;
+  ev.preventDefault(); dragStart = natural(ev);
+});
+window.addEventListener("mousemove", ev => { if (dragStart) pendingBox = showSel(dragStart, natural(ev)); });
+window.addEventListener("mouseup", ev => {
+  if (!dragStart) return;
+  const box = showSel(dragStart, natural(ev)); dragStart = null;
+  if (box[2] - box[0] < 12 || box[3] - box[1] < 12) { sel.hidden = true; pendingBox = null; return; }
+  pendingBox = box; openFigDialog();
+});
+overlay.addEventListener("click", ev => {
+  const t = ev.target;
+  if (t.classList.contains("pbox") && cropOn) {
+    const b = rowsData[page].pictures[+t.dataset.pic];
+    const W = rowsData[page].width, H = rowsData[page].height;
+    pendingBox = showSel({ fx: b[0] / W, fy: b[1] / H, x: b[0], y: b[1] }, { fx: b[2] / W, fy: b[3] / H, x: b[2], y: b[3] });
+    openFigDialog(); return;
+  }
+  if (!cropOn && t.classList.contains("rbox")) gotoRow(+t.dataset.idx);
+});
+function openFigDialog() {
+  $("thumb").src = ""; $("figAlt").value = "";
+  // 미리보기: 쪽 이미지를 잘라 그린 임시 그림
+  const c = document.createElement("canvas"), b = pendingBox;
+  const w = Math.max(1, Math.round(b[2] - b[0])), h = Math.max(1, Math.round(b[3] - b[1]));
+  const k = Math.min(1, 480 / w); c.width = Math.round(w * k); c.height = Math.round(h * k);
+  const sx = img.naturalWidth / ((rowsData[page] && rowsData[page].width) || img.naturalWidth);
+  try { c.getContext("2d").drawImage(img, b[0] * sx, b[1] * sx, w * sx, h * sx, 0, 0, c.width, c.height); $("thumb").src = c.toDataURL("image/png"); } catch (e) {}
+  $("figDlg").showModal(); $("figAlt").focus();
+}
+$("figCancel").onclick = () => { $("figDlg").close(); sel.hidden = true; pendingBox = null; };
+$("figOk").onclick = async () => {
+  if (!pendingBox) return;
+  try {
+    const res = await api("/api/crop", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ page, box: pendingBox }) });
+    const alt = $("figAlt").value.replace(/\s+/g, " ").replace(/\[/g, "(").replace(/\]/g, ")").trim();
+    insertAtCaret("\n\n![" + alt + "](" + res.path + ")\n\n");
+    $("figDlg").close(); sel.hidden = true; pendingBox = null;
+    setStatus("그림을 넣었습니다: " + res.path);
+  } catch (e) { setStatus("그림 저장 실패: " + e.message, true); }
+};
+function insertAtCaret(s) {
+  const a = ed.selectionStart, b = ed.selectionEnd, v = ed.value;
+  // 문장 한가운데가 아니라 현재 문단 끝에 넣는다 (다음 빈 줄 앞)
+  let at = v.indexOf("\n\n", b); if (at < 0) at = v.length;
+  ed.value = v.slice(0, at) + s.replace(/\n+$/, "\n") + v.slice(at).replace(/^\n+/, "\n");
+  const pos = at + s.length - 1;
+  ed.setSelectionRange(pos, pos); ed.focus(); onEdited();
+}
+
+// ---- 저장 -------------------------------------------------------------
+function onEdited() { dirty = true; setStatus("수정됨…"); clearTimeout(saveTimer); saveTimer = setTimeout(save, 1500); }
+async function save() {
+  if (saving || !dirty) return;
+  saving = true; dirty = false;
+  try { await api("/api/md", { method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: ed.value });
+        setStatus("저장됨 " + new Date().toLocaleTimeString("ko-KR")); }
+  catch (e) { dirty = true; setStatus("저장 실패: " + e.message, true); }
+  finally { saving = false; if (dirty) { clearTimeout(saveTimer); saveTimer = setTimeout(save, 3000); } }
+}
+ed.addEventListener("input", onEdited);
+ed.addEventListener("blur", save);
+window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+// ---- 커서 → 쪽 ---------------------------------------------------------
+let syncT = null;
+function syncPage() { clearTimeout(syncT); syncT = setTimeout(() => { const n = pageAtCaret(); if (n !== page && book) showPage(n, {}); }, 120); }
+["click", "keyup", "focus"].forEach(ev => ed.addEventListener(ev, syncPage));
+
+// ---- 도구 모음 ---------------------------------------------------------
+$("prev").onclick = () => showPage(page - 1, { moveText: true });
+$("next").onclick = () => showPage(page + 1, { moveText: true });
+$("pageNo").addEventListener("change", e => showPage(+e.target.value || 1, { moveText: true }));
+$("toggleRows").onclick = e => { showRows = !showRows; e.target.classList.toggle("on", showRows); drawOverlay(); };
+$("cropMode").onclick = e => { cropOn = !cropOn; e.target.classList.toggle("on", cropOn); wrap.classList.toggle("crop", cropOn);
+  $("imgHint").textContent = cropOn ? "그림으로 넣을 영역을 끌어 지정하세요 (점선 영역은 누르면 바로 선택)" : ""; sel.hidden = true; };
+$("zoomIn").onclick = () => { zoom = Math.min(4, (zoom || 1) + 0.25); applyZoom(); };
+$("zoomOut").onclick = () => { zoom = Math.max(0.5, (zoom || 1) - 0.25); applyZoom(); };
+$("zoomFit").onclick = () => { zoom = 0; applyZoom(); };
+$("saveNow").onclick = () => { dirty = true; save(); };
+$("nextLow").onclick = async () => {
+  if (!suspects.length) { setStatus("신뢰도가 낮은 줄이 없습니다"); return; }
+  const here = pageAtCaret();
+  let i = suspects.findIndex((s, k) => k > suspectPos && s.page >= here);
+  if (suspectPos < 0 || i < 0) i = suspects.findIndex(s => s.page >= here);
+  if (i < 0) i = 0;
+  suspectPos = i; const s = suspects[i];
+  await showPage(s.page, {});
+  if (!rowsData[s.page]) rowsData[s.page] = await api("/api/rows/" + s.page);
+  gotoRow(s.row);
+  const r = wrap.querySelector('.rbox[data-idx="' + s.row + '"]');
+  if (r) r.scrollIntoView({ block: "center", behavior: "smooth" });
+  setStatus("의심 줄 " + (i + 1) + "/" + suspects.length + " (신뢰도 " + s.score + ")");
+};
+
+// ---- 찾기 / 바꾸기 -----------------------------------------------------
+$("findNext").onclick = () => {
+  const q = $("findText").value; if (!q) return;
+  let k = ed.value.indexOf(q, ed.selectionEnd);
+  if (k < 0) k = ed.value.indexOf(q);
+  if (k < 0) { setStatus("찾는 글이 없습니다", true); return; }
+  ed.focus({ preventScroll: true }); ed.setSelectionRange(k, k + q.length); scrollEditorTo(k); syncPage();
+};
+$("replAll").onclick = () => {
+  const q = $("findText").value, r = $("replText").value; if (!q) return;
+  const n = ed.value.split(q).length - 1; if (!n) { setStatus("찾는 글이 없습니다", true); return; }
+  if (!confirm("'" + q + "' " + n + "곳을 '" + r + "' (으)로 바꿉니다. 계속할까요?")) return;
+  const top = ed.scrollTop; ed.value = ed.value.split(q).join(r); ed.scrollTop = top; onEdited(); setStatus(n + "곳을 바꿨습니다");
+};
+
+// ---- 그림 목록 ---------------------------------------------------------
+$("figs").onclick = () => {
+  const list = $("figlist"); list.innerHTML = "";
+  const re = /!\[([^\]\n]*)\]\((figures\/[^)\s]+)\)/g; let m, total = 0, missing = 0;
+  while ((m = re.exec(ed.value))) {
+    total++; const alt = m[1].trim(), pos = m.index;
+    const before = markers().filter(x => x.pos <= pos).pop();
+    const li = document.createElement("li");
+    if (!alt) { missing++; li.innerHTML = '<span class="warn">설명 없음</span> '; } else li.append(document.createTextNode(alt.slice(0, 80) + (alt.length > 80 ? "…" : "") + " "));
+    const s = document.createElement("span"); s.style.color = "var(--muted)"; s.textContent = "(" + (before ? before.no + "쪽, " : "") + m[2] + ")"; li.append(s);
+    li.onclick = () => { $("figListDlg").close(); ed.focus({ preventScroll: true }); ed.setSelectionRange(pos, pos); scrollEditorTo(pos); syncPage(); };
+    list.appendChild(li);
+  }
+  $("figSummary").innerHTML = total ? ("그림 " + total + "개 중 " + (missing ? '<span class="warn">설명 없음 ' + missing + "개</span>" : "모두 설명이 있습니다")) : "아직 넣은 그림이 없습니다.";
+  $("figListDlg").showModal();
+};
+$("figListClose").onclick = () => $("figListDlg").close();
+
+// ---- 단축키 ------------------------------------------------------------
+window.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); dirty = true; save(); return; }
+  if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); $("prev").click(); }
+  else if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); $("next").click(); }
+  else if (e.altKey && e.key.toLowerCase() === "l") { e.preventDefault(); $("nextLow").click(); }
+  else if (e.altKey && e.key.toLowerCase() === "g") { e.preventDefault(); $("cropMode").click(); }
+});
+
+// ---- 시작 --------------------------------------------------------------
+(async function init() {
+  try {
+    book = await api("/api/book");
+    document.title = book.title + " — 교정";
+    $("title").textContent = book.title;
+    ed.value = book.md; dirty = false;
+    ed.setSelectionRange(0, 0);  // 값을 넣으면 커서가 글 끝으로 가므로 맨 앞(1쪽)에서 시작
+    suspects = await api("/api/suspects");
+    $("nextLow").textContent = "다음 의심 줄 (" + suspects.length + ")";
+    applyZoom();
+    await showPage(pageAtCaret(), {});
+    setStatus("준비됨");
+  } catch (e) { setStatus("불러오기 실패: " + e.message, true); }
+})();
+</script>
+</body>
+</html>
