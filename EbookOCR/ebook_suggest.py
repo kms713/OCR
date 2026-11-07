@@ -12,7 +12,7 @@ AI 교정 제안 만들기 (Gemini API, 선택 기능)
 
 사용 예 (Windows 에서는 python 대신 py -3.12)
     python ebook_suggest.py books\\책이름
-    python ebook_suggest.py books\\책이름 --model gemini-3.8-flash --rpm 15 --thinking low
+    python ebook_suggest.py books\\책이름 --model gemini-3.8-flash --thinking low --timeout 300   # 느린 모델
     python ebook_suggest.py books\\책이름 --limit 5      # 처음 5덩어리만 (시험용)
     python ebook_suggest.py --check                     # 연결만 점검 (짧은 글 한 번)
     python ebook_suggest.py --check --no-proxy          # 프록시를 거치지 않고 점검
@@ -39,7 +39,7 @@ import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_MODEL = "gemini-3.8-flash"
+DEFAULT_MODEL = "gemini-3.5-flash-lite"  # 3.8-flash 는 2026-11-07 시험에서 "hello" 한 마디에 54초·503 혼잡
 API_BASE = os.environ.get("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
 SOFT = "⁠"
 PAGE_MARK = re.compile(r"^<!--.*-->$")
@@ -196,7 +196,11 @@ def call_raw(key: str, model: str, text: str, thinking: str = "", timeout: int =
                 del body["generationConfig"]["thinkingConfig"]
                 continue
             if e.code in (500, 502, 503, 504):
-                time.sleep(5 * (attempt + 1))
+                wait = 10 * (attempt + 1)
+                print(f"\n  서버 혼잡·일시 오류 ({e.code}) — {wait}초 뒤 다시 시도합니다 ({attempt + 1}/5)", flush=True)
+                if attempt == 4:
+                    raise RuntimeError(f"서버가 계속 바쁩니다 ({e.code}). 잠시 뒤 다시 하거나 --model 로 다른 모델을 쓰세요.")
+                time.sleep(wait)
                 continue
             raise RuntimeError(f"API 오류 {e.code}: {detail[:300]}")
         except (urllib.error.URLError, TimeoutError, OSError) as e:
@@ -277,8 +281,8 @@ def main(argv=None) -> int:
     ap.add_argument("-o", "--output", help="OCR 결과 폴더")
     ap.add_argument("--title")
     ap.add_argument("--model", default=os.environ.get("GEMINI_MODEL", DEFAULT_MODEL), help=f"모델 이름 (기본 {DEFAULT_MODEL})")
-    ap.add_argument("--thinking", default="low", choices=["", "none", "minimal", "low", "medium", "high"],
-                    help="사고 수준 (기본 low. none 이면 보내지 않음). 모델이 받지 않으면 자동으로 뺌")
+    ap.add_argument("--thinking", default="none", choices=["", "none", "minimal", "low", "medium", "high"],
+                    help="사고 수준 (기본 none = 보내지 않음). 모델이 받지 않으면 자동으로 뺌")
     ap.add_argument("--timeout", type=int, default=90, help="응답 조각 사이 대기 제한(초, 기본 90)")
     ap.add_argument("--max-tokens", type=int, default=0, help="한 번 답의 최대 토큰 (0 = 보낸 글자 수에 맞춰 자동)")
     ap.add_argument("--temperature", type=float, default=None, help="온도 (기본: 보내지 않음 = 모델 기본값)")
@@ -371,4 +375,8 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print("\n[멈춤] Ctrl+C 로 멈췄습니다. 다시 실행하면 검사하지 않은 문단부터 이어서 합니다.")
+        sys.exit(130)
