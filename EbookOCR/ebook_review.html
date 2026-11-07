@@ -65,6 +65,7 @@
   .sug .lbl { color:var(--muted); font-size:12px; margin-right:6px; }
   .sug del { background:rgba(229,72,77,.22); text-decoration:line-through; }
   .sug ins { background:rgba(46,155,95,.28); text-decoration:none; }
+  .sug .sp { font-size:.8em; opacity:.75; }
   .sug .flag { color:var(--low); font-weight:600; font-size:12px; margin-left:6px; }
   .sug .btns { margin-top:6px; display:flex; gap:6px; }
   .warn { color:var(--low); font-weight:600; }
@@ -418,8 +419,9 @@ function renderSuggestions() {
   for (const orig of [...new Set(here)]) {
     const s = sugMap.get(orig), card = document.createElement("div"); card.className = "sug";
     const diff = lcsDiff(orig, s.sug); const esc = x => x.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-    const a = diff.map(([k, c]) => k === "=" ? esc(c) : k === "-" ? "<del>" + esc(c) + "</del>" : "").join("");
-    const b = diff.map(([k, c]) => k === "=" ? esc(c) : k === "+" ? "<ins>" + esc(c) + "</ins>" : "").join("");
+    const vis = x => esc(x).replace(/ /g, '<span class="sp">␣</span>');  // 빠지거나 더해진 띄어쓰기를 보이게
+    const a = diff.map(([k, c]) => k === "=" ? esc(c) : k === "-" ? "<del>" + vis(c) + "</del>" : "").join("");
+    const b = diff.map(([k, c]) => k === "=" ? esc(c) : k === "+" ? "<ins>" + vis(c) + "</ins>" : "").join("");
     card.innerHTML = '<div class="tx"><span class="lbl">원문</span>' + a + '</div><div class="tx"><span class="lbl">제안</span>' + b +
       (s.flags.length ? '<span class="flag">⚠ ' + s.flags.join(", ") + " — 원본과 꼭 대조하세요</span>" : "") + '</div><div class="btns"></div>';
     const acc = document.createElement("button"); acc.textContent = "수락"; acc.className = "on";
