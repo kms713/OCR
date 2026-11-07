@@ -76,7 +76,7 @@ LD플레이어로 연 전자책을 한 쪽씩 넘기며 캡처하고, 글자만 
   · 응답이 안 오거나 시간 초과가 나면 먼저 연결 점검:  ... ebook_suggest.py --check
     - [점검 성공]이 나오면 연결은 정상입니다. 책으로 다시 해 보고, 그래도 느리면 --chunk-chars 1000
     - 시간 초과가 나면 프록시를 빼고:  ... --check --no-proxy  (되면 본 명령에도 --no-proxy 를 붙임)
-    - 그래도 안 되면 사고 설정 빼기 --thinking ""  또는 다른 모델 --model gemini-3.5-flash-lite
+    - 그래도 안 되면 사고 설정 빼기 --thinking none  또는 다른 모델 --model gemini-3.5-flash-lite
 
 [5단계] 5_내보내기.bat  (결과물 2종)
   · 책이름_완성본.docx : 그림이 글 사이에 들어간 문서. Word·한글·구글 문서에서 열 수 있습니다.

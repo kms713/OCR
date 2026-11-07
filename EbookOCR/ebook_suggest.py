@@ -277,8 +277,8 @@ def main(argv=None) -> int:
     ap.add_argument("-o", "--output", help="OCR 결과 폴더")
     ap.add_argument("--title")
     ap.add_argument("--model", default=os.environ.get("GEMINI_MODEL", DEFAULT_MODEL), help=f"모델 이름 (기본 {DEFAULT_MODEL})")
-    ap.add_argument("--thinking", default="low", choices=["", "minimal", "low", "medium", "high"],
-                    help="사고 수준 (기본 low. 빈 값이면 보내지 않음). 모델이 받지 않으면 자동으로 뺌")
+    ap.add_argument("--thinking", default="low", choices=["", "none", "minimal", "low", "medium", "high"],
+                    help="사고 수준 (기본 low. none 이면 보내지 않음). 모델이 받지 않으면 자동으로 뺌")
     ap.add_argument("--timeout", type=int, default=90, help="응답 조각 사이 대기 제한(초, 기본 90)")
     ap.add_argument("--max-tokens", type=int, default=0, help="한 번 답의 최대 토큰 (0 = 보낸 글자 수에 맞춰 자동)")
     ap.add_argument("--temperature", type=float, default=None, help="온도 (기본: 보내지 않음 = 모델 기본값)")
@@ -290,6 +290,8 @@ def main(argv=None) -> int:
     ap.add_argument("--limit", type=int, default=0, help="이번에 보낼 덩어리 수 상한 (0 = 끝까지)")
     ap.add_argument("--redo", action="store_true", help="이미 검사한 문단도 다시 보냄")
     args = ap.parse_args(argv)
+    if args.thinking == "none":  # PowerShell 은 빈 "" 를 넘기지 않으므로 none 으로도 받는다
+        args.thinking = ""
 
     if not args.folder and not args.check:
         ap.error("책 폴더를 지정하세요 (연결 점검만 할 때는 --check)")
