@@ -110,17 +110,18 @@ class QuotaDaily(Exception):
     pass
 
 
-def call_gemini(key: str, model: str, text: str, thinking: str = "") -> list[dict]:
+def call_gemini(key: str, model: str, text: str, thinking: str = "", timeout: int = 90) -> list[dict]:
     body = {"contents": [{"role": "user", "parts": [{"text": PROMPT + text}]}],
             "generationConfig": {"temperature": 0, "responseMimeType": "application/json"}}
     if thinking:  # 사고 수준: 맞춤법 교정에는 낮춰도 충분 (모델이 지원하지 않으면 아래에서 빼고 다시 시도)
         body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": thinking}
     url = f"{API_BASE}/models/{model}:generateContent"
     for attempt in range(5):
+        t0 = time.monotonic()
         req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), method="POST",
                                      headers={"Content-Type": "application/json", "x-goog-api-key": key})
         try:
-            with urllib.request.urlopen(req, timeout=120) as r:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 data = json.loads(r.read().decode("utf-8"))
             break
         except urllib.error.HTTPError as e:
@@ -140,10 +141,12 @@ def call_gemini(key: str, model: str, text: str, thinking: str = "") -> list[dic
                 time.sleep(5 * (attempt + 1))
                 continue
             raise RuntimeError(f"API 오류 {e.code}: {detail[:300]}")
-        except (urllib.error.URLError, TimeoutError) as e:
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            why = getattr(e, "reason", e)
+            print(f"\n  응답 실패 ({time.monotonic() - t0:.0f}초 후): {why} — 다시 시도합니다 ({attempt + 1}/5)", flush=True)
             time.sleep(5 * (attempt + 1))
             if attempt == 4:
-                raise RuntimeError(f"연결 실패: {e}")
+                raise RuntimeError(f"연결 실패: {why}")
     else:
         raise RuntimeError("API 호출이 계속 실패했습니다")
     try:
@@ -191,6 +194,7 @@ def main(argv=None) -> int:
     ap.add_argument("--model", default=os.environ.get("GEMINI_MODEL", DEFAULT_MODEL), help=f"모델 이름 (기본 {DEFAULT_MODEL})")
     ap.add_argument("--thinking", default="low", choices=["", "minimal", "low", "medium", "high"],
                     help="사고 수준 (기본 low. 빈 값이면 보내지 않음). 모델이 받지 않으면 자동으로 뺌")
+    ap.add_argument("--timeout", type=int, default=90, help="한 번 호출의 응답 대기 제한(초, 기본 90)")
     ap.add_argument("--rpm", type=float, default=15, help="분당 최대 호출 수 (기본 15)")
     ap.add_argument("--chunk-chars", type=int, default=4000, help="한 번에 보낼 글자 수 (기본 4000)")
     ap.add_argument("--max-change", type=float, default=0.15, help="이보다 많이 바뀐 제안은 버림 (기본 0.15)")
@@ -231,8 +235,10 @@ def main(argv=None) -> int:
         last = time.monotonic()
         ids = {para_id(p): p for p in ch}
         text = "\n".join(f"[{k}] {p}" for k, p in ids.items())
+        print(f"\r  {i}/{len(chunks)} 덩어리 보내는 중... (응답이 올 때까지 최대 {args.timeout}초)", end="", flush=True)
+        t_call = time.monotonic()
         try:
-            res = call_gemini(key, args.model, text, args.thinking)
+            res = call_gemini(key, args.model, text, args.thinking, args.timeout)
         except QuotaDaily as e:
             save_store(store_path, store)
             print(f"\n[중단] 하루 사용 한도에 도달했습니다. 내일 같은 명령을 다시 실행하면 이어서 합니다.\n  {e}")
@@ -254,7 +260,7 @@ def main(argv=None) -> int:
                 n_drop += 1
         store["checked"] = sorted(set(store["checked"]) | set(ids))
         save_store(store_path, store)
-        print(f"\r  {i}/{len(chunks)} 덩어리 — 제안 {n_sug}개", end="", flush=True)
+        print(f"\r  {i}/{len(chunks)} 덩어리 완료 ({time.monotonic() - t_call:.0f}초) — 제안 {n_sug}개          ", flush=True)
     print(f"\n완료: 제안 {n_sug}개 (너무 많이 바뀌어 버린 것 {n_drop}개)")
     print(f"  저장: {store_path.resolve()}")
     print("  4_교정.bat 로 교정 편집기를 열면 아래쪽에 제안이 나타납니다.")
