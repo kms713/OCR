@@ -74,6 +74,7 @@ EbookOCR/                  ← 전자책 OCR
   ebook_ocr.py             이미지 폴더 → Markdown
   ebook_review.py/.html    교정 편집기 (브라우저, 표준 라이브러리 서버)
   ebook_export.py          교정 글 → 완성본 docx + AI용 md
+  ebook_suggest.py         Gemini 맞춤법·OCR 교정 제안 (선택, 원문 불변)
   설치.bat, 1_캡처점검.bat, 2_캡처.bat, 3_OCR.bat, 4_교정.bat, 5_내보내기.bat, 설치_GPU.bat, 3_OCR_GPU.bat
 ```
 
@@ -268,6 +269,13 @@ class PageResult:
 - 이미지 위 줄 상자·신뢰도(<0.8 강조)·그림 후보는 `cache/*.json`의 `rows`·`pictures` 사용. 줄을 누르면 글에서 부분 문자열 검색.
 - API: `GET /api/book`, `/api/suspects`, `/api/rows/N`, `/img/N`, `/figures/이름`, `PUT /api/md`, `POST /api/crop {page, box}`. 그림은 **원본 이미지**에서 잘라 `책이름_OCR/figures/pNNNN_KK.png`.
 - 그림 줄: `![설명](figures/…png)` 한 줄. 문단 끝(다음 빈 줄 앞)에 삽입.
+
+**AI 교정 제안** (`ebook_suggest.py`, 선택. Gemini REST `models/<모델>:generateContent`, 표준 라이브러리만)
+- 키: 환경변수 `GEMINI_API_KEY` 또는 `EbookOCR/gemini_key.txt`(.gitignore). 모델 기본 `gemini-3.1-flash-lite`(`--model`/`GEMINI_MODEL`), 분당 호출 `--rpm`(기본 15), 한 번에 `--chunk-chars`(기본 4000, 문단 경계). 시험용으로 `GEMINI_API_BASE` 지정 가능.
+- 본문 문단(제목·각주·그림·쪽 표시 제외)을 `[id] 문단`으로 보내 고친 문단만 JSON으로 받음. **원문은 건드리지 않고** `책이름_제안.json`에 `{orig, sug, flags, status}` 저장, 검사한 문단은 `checked`에 기록(이어 하기). 429 중 "PerDay"는 중단(내일 이어 하기), 그 외 429·5xx는 대기 후 재시도.
+- 걸러내기: 원문 대비 변경 비율 > `--max-change`(0.15)이면 버림, 숫자·영문 열이 달라지면 `flags`에 표시.
+- 편집기: `GET /api/suggestions`, `POST /api/suggest/status`. 제안은 현재 쪽 문단 아래에 글자 단위 차이로 표시, 수락 시 해당 문단만 교체. 문단은 원문 문자열 일치로 찾으므로 그 사이 원문을 고쳤으면 적용되지 않음.
+- 무료 등급 한도는 자주 바뀜(분당 횟수보다 하루 요청 수가 먼저 걸릴 수 있음) → 설정값으로 둠. 실제 API 호출은 가짜 서버로만 시험함.
 
 **내보내기** (`ebook_export.py`) — 교정 글 하나에서 2종
 | | `책이름_완성본.docx` (python-docx) | `책이름_AI용.md` |

@@ -58,6 +58,15 @@
   #figlist { max-height:50vh; overflow:auto; margin:0; padding:0; list-style:none; }
   #figlist li { padding:6px 4px; border-bottom:1px solid var(--line); cursor:pointer; }
   #figlist li:hover { background:var(--bg); }
+  #sugPanel { border-top:2px solid var(--line); max-height:38%; overflow:auto; background:var(--bg); }
+  #sugPanel[hidden] { display:none; }
+  .sug { padding:8px 12px; border-bottom:1px solid var(--line); background:var(--panel); margin:6px; border-radius:6px; }
+  .sug .tx { white-space:pre-wrap; overflow-wrap:break-word; line-height:1.7; }
+  .sug .lbl { color:var(--muted); font-size:12px; margin-right:6px; }
+  .sug del { background:rgba(229,72,77,.22); text-decoration:line-through; }
+  .sug ins { background:rgba(46,155,95,.28); text-decoration:none; }
+  .sug .flag { color:var(--low); font-weight:600; font-size:12px; margin-left:6px; }
+  .sug .btns { margin-top:6px; display:flex; gap:6px; }
   .warn { color:var(--low); font-weight:600; }
   kbd { border:1px solid var(--line); border-radius:4px; padding:0 4px; font-size:12px; background:var(--bg); }
 </style>
@@ -73,6 +82,7 @@
   <button id="toggleRows" class="on" title="이미지 위에 OCR이 읽은 줄 표시">줄 상자</button>
   <button id="nextLow" title="신뢰도가 낮은 다음 줄로 이동 (Alt+L)">다음 의심 줄</button>
   <span class="sep"></span>
+  <button id="nextSug" title="다음 AI 교정 제안이 있는 곳으로 이동 (Alt+S)" hidden>다음 제안</button>
   <button id="cropMode" title="이미지에서 영역을 끌어 그림으로 넣기 (Alt+G)">그림 넣기 모드</button>
   <button id="figs" title="넣은 그림 목록과 설명이 빠진 그림 점검">그림 목록</button>
   <span class="sep"></span>
@@ -94,6 +104,7 @@
       <button id="findNext">찾기</button><button id="replAll">모두 바꾸기</button>
     </div>
     <textarea id="editor" spellcheck="false"></textarea>
+    <div id="sugPanel" hidden><div class="bar"><span class="t">AI 교정 제안</span><span id="sugInfo" style="color:var(--muted)"></span></div><div id="sugList"></div></div>
   </section>
 </main>
 <div id="mirror"></div>
@@ -180,6 +191,7 @@ async function showPage(no, opts) {
     if (page === no) drawOverlay();
   }
   if (opts.moveText) focusPageText(no);
+  if (typeof renderSuggestions === 'function') renderSuggestions();
 }
 function drawOverlay() {
   overlay.innerHTML = "";
@@ -368,12 +380,89 @@ $("figs").onclick = () => {
 };
 $("figListClose").onclick = () => $("figListDlg").close();
 
+// ---- AI 교정 제안 (원문은 그대로 두고, 수락한 것만 글에 반영) ------------------
+let sugMap = new Map();  // 원문 문단 → {orig, sug, flags}
+function lcsDiff(a, b) {  // 글자 단위 차이. 너무 길면 앞뒤 공통부분만 제외
+  const n = a.length, m = b.length;
+  let pre = 0; while (pre < n && pre < m && a[pre] === b[pre]) pre++;
+  let suf = 0; while (suf < n - pre && suf < m - pre && a[n - 1 - suf] === b[m - 1 - suf]) suf++;
+  const A = a.slice(pre, n - suf), B = b.slice(pre, m - suf), out = [];
+  if (pre) out.push(["=", a.slice(0, pre)]);
+  if (A.length * B.length > 4e6) { if (A) out.push(["-", A]); if (B) out.push(["+", B]); }
+  else {
+    const dp = Array.from({ length: A.length + 1 }, () => new Uint16Array(B.length + 1));
+    for (let i = A.length - 1; i >= 0; i--) for (let j = B.length - 1; j >= 0; j--)
+      dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    let i = 0, j = 0; const push = (k, c) => { if (out.length && out[out.length - 1][0] === k) out[out.length - 1][1] += c; else out.push([k, c]); };
+    while (i < A.length && j < B.length) {
+      if (A[i] === B[j]) { push("=", A[i]); i++; j++; }
+      else if (dp[i + 1][j] >= dp[i][j + 1]) push("-", A[i++]); else push("+", B[j++]);
+    }
+    while (i < A.length) push("-", A[i++]); while (j < B.length) push("+", B[j++]);
+  }
+  if (suf) out.push(["=", a.slice(n - suf)]);
+  return out;
+}
+function paragraphsOfPage(no) {  // 현재 쪽 구간의 문단(줄) 목록
+  const v = ed.value, ms = markers(), i = ms.findIndex(m => m.no === no);
+  const from = i >= 0 ? ms[i].end : 0, to = i >= 0 && i + 1 < ms.length ? ms[i + 1].pos : v.length;
+  return v.slice(from, to).split("\n").map(x => x.trim()).filter(Boolean);
+}
+function renderSuggestions() {
+  const panel = $("sugPanel"), list = $("sugList");
+  if (!sugMap.size) { panel.hidden = true; $("nextSug").hidden = true; return; }
+  $("nextSug").hidden = false; $("nextSug").textContent = "다음 제안 (" + sugMap.size + ")";
+  const here = paragraphsOfPage(page).filter(t => sugMap.has(t));
+  panel.hidden = false; list.innerHTML = "";
+  $("sugInfo").textContent = here.length ? "이 쪽 " + here.length + "건 · 전체 " + sugMap.size + "건 (원문은 수락 전까지 그대로입니다)" : "이 쪽에는 제안이 없습니다 · 전체 " + sugMap.size + "건 → '다음 제안'";
+  for (const orig of [...new Set(here)]) {
+    const s = sugMap.get(orig), card = document.createElement("div"); card.className = "sug";
+    const diff = lcsDiff(orig, s.sug); const esc = x => x.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+    const a = diff.map(([k, c]) => k === "=" ? esc(c) : k === "-" ? "<del>" + esc(c) + "</del>" : "").join("");
+    const b = diff.map(([k, c]) => k === "=" ? esc(c) : k === "+" ? "<ins>" + esc(c) + "</ins>" : "").join("");
+    card.innerHTML = '<div class="tx"><span class="lbl">원문</span>' + a + '</div><div class="tx"><span class="lbl">제안</span>' + b +
+      (s.flags.length ? '<span class="flag">⚠ ' + s.flags.join(", ") + " — 원본과 꼭 대조하세요</span>" : "") + '</div><div class="btns"></div>';
+    const acc = document.createElement("button"); acc.textContent = "수락"; acc.className = "on";
+    const rej = document.createElement("button"); rej.textContent = "거절";
+    acc.onclick = () => acceptSug(orig); rej.onclick = () => resolveSug(orig, "rejected");
+    card.querySelector(".btns").append(acc, rej); list.appendChild(card);
+  }
+}
+async function resolveSug(orig, status) {
+  try { await api("/api/suggest/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orig, status }) }); }
+  catch (e) { setStatus("제안 상태 저장 실패: " + e.message, true); return; }
+  sugMap.delete(orig); renderSuggestions();
+}
+function acceptSug(orig) {
+  const s = sugMap.get(orig); if (!s) return;
+  const v = ed.value, ms = markers(), i = ms.findIndex(m => m.no === page);
+  const from = i >= 0 ? ms[i].end : 0, to = i >= 0 && i + 1 < ms.length ? ms[i + 1].pos : v.length;
+  const k = v.slice(from, to).indexOf(orig);
+  if (k < 0) { setStatus("원문이 이미 바뀌어 적용하지 못했습니다 (제안을 거절 처리하세요)", true); return; }
+  const at = from + k, top = ed.scrollTop;
+  ed.value = v.slice(0, at) + s.sug + v.slice(at + orig.length); ed.scrollTop = top;
+  onEdited(); resolveSug(orig, "accepted"); setStatus("제안을 반영했습니다");
+}
+$("nextSug").onclick = () => {
+  const v = ed.value; let best = null;
+  const ms = markers(), here = ed.selectionStart;
+  for (const orig of sugMap.keys()) { const k = v.indexOf(orig); if (k >= 0 && (k > here ? (best === null || k < best.k || best.k <= here) : (best === null || (best.k <= here && k < best.k)))) best = { k, orig }; }
+  if (!best) { setStatus("이 글에서 찾을 수 있는 제안이 없습니다"); return; }
+  ed.focus({ preventScroll: true }); ed.setSelectionRange(best.k, best.k + best.orig.length); scrollEditorTo(best.k); syncPage();
+  const n = pageAtCaret(); if (n === page) renderSuggestions();
+};
+async function loadSuggestions() {
+  try { const l = await api("/api/suggestions"); sugMap = new Map(l.map(x => [x.orig, x])); } catch (e) { sugMap = new Map(); }
+  renderSuggestions();
+}
+
 // ---- 단축키 ------------------------------------------------------------
 window.addEventListener("keydown", e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); dirty = true; save(); return; }
   if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); $("prev").click(); }
   else if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); $("next").click(); }
   else if (e.altKey && e.key.toLowerCase() === "l") { e.preventDefault(); $("nextLow").click(); }
+  else if (e.altKey && e.key.toLowerCase() === "s") { e.preventDefault(); $("nextSug").click(); }
   else if (e.altKey && e.key.toLowerCase() === "g") { e.preventDefault(); $("cropMode").click(); }
 });
 
@@ -386,6 +475,7 @@ window.addEventListener("keydown", e => {
     ed.value = book.md; dirty = false;
     ed.setSelectionRange(0, 0);  // 값을 넣으면 커서가 글 끝으로 가므로 맨 앞(1쪽)에서 시작
     suspects = await api("/api/suspects");
+    await loadSuggestions();
     $("nextLow").textContent = "다음 의심 줄 (" + suspects.length + ")";
     applyZoom();
     await showPage(pageAtCaret(), {});

@@ -66,6 +66,7 @@ class Book:
         self.work = out_dir / f"{title}_교정.md"
         self.source = out_dir / f"{title}_교정용.md"
         self.figures = out_dir / "figures"
+        self.suggest = out_dir / f"{title}_제안.json"  # ebook_suggest.py 가 만든 AI 교정 제안
         self.lock = threading.Lock()
 
     # -- 작업 파일 --------------------------------------------------------
@@ -121,6 +122,30 @@ class Book:
                 if r.get("score", 1.0) < LOW_SCORE:
                     out.append({"page": i, "row": j, "text": r["text"], "score": round(r["score"], 3)})
         return out
+
+    # -- AI 교정 제안 (원문은 건드리지 않고 사용자가 수락할 때만 글에 반영) --------
+    def _load_suggest(self) -> dict:
+        try:
+            d = json.loads(self.suggest.read_bytes().decode("utf-8"))
+            return d if isinstance(d, dict) and "items" in d else {"items": {}}
+        except (OSError, ValueError):
+            return {"items": {}}
+
+    def suggestions(self) -> list[dict]:
+        return [{"orig": v["orig"], "sug": v["sug"], "flags": v.get("flags", [])}
+                for v in self._load_suggest()["items"].values() if v.get("status", "new") == "new"]
+
+    def set_suggest_status(self, orig: str, status: str) -> None:
+        if status not in ("accepted", "rejected"):
+            raise ValueError("잘못된 상태")
+        with self.lock:
+            d = self._load_suggest()
+            for v in d["items"].values():
+                if v["orig"] == orig:
+                    v["status"] = status
+            tmp = self.suggest.with_suffix(".json.tmp")
+            tmp.write_bytes(json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8"))
+            tmp.replace(self.suggest)
 
     # -- 그림 오려내기 ----------------------------------------------------
     def crop(self, no: int, box: list[float]) -> str:
@@ -201,6 +226,8 @@ def make_handler(book: Book):
                 if path == "/api/book":
                     return self._json({"title": book.title, "pages": book.page_info(), "md": book.read_md(),
                                        "low_score": LOW_SCORE})
+                if path == "/api/suggestions":
+                    return self._json(book.suggestions())
                 if path == "/api/suspects":
                     return self._json(book.suspects())
                 m = re.fullmatch(r"/api/rows/(\d+)", path)
@@ -240,6 +267,10 @@ def make_handler(book: Book):
                     req = json.loads(self._body().decode("utf-8"))
                     rel = book.crop(int(req["page"]), [float(v) for v in req["box"]])
                     return self._json({"path": rel})
+                if urlparse(self.path).path == "/api/suggest/status":
+                    req = json.loads(self._body().decode("utf-8"))
+                    book.set_suggest_status(str(req["orig"]), str(req["status"]))
+                    return self._json({"ok": True})
                 return self._json({"error": "없음"}, 404)
             except ValueError as e:
                 return self._json({"error": str(e)}, 400)
