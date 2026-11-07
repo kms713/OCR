@@ -12,7 +12,7 @@ AI 교정 제안 만들기 (Gemini API, 선택 기능)
 
 사용 예 (Windows 에서는 python 대신 py -3.12)
     python ebook_suggest.py books\\책이름
-    python ebook_suggest.py books\\책이름 --model gemini-3.1-flash-lite --rpm 15
+    python ebook_suggest.py books\\책이름 --model gemini-3.8-flash --rpm 15 --thinking low
     python ebook_suggest.py books\\책이름 --limit 5      # 처음 5덩어리만 (시험용)
 
 동작
@@ -36,7 +36,7 @@ import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_MODEL = "gemini-3.1-flash-lite"
+DEFAULT_MODEL = "gemini-3.8-flash"
 API_BASE = os.environ.get("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
 SOFT = "⁠"
 PAGE_MARK = re.compile(r"^<!--.*-->$")
@@ -110,9 +110,11 @@ class QuotaDaily(Exception):
     pass
 
 
-def call_gemini(key: str, model: str, text: str) -> list[dict]:
+def call_gemini(key: str, model: str, text: str, thinking: str = "") -> list[dict]:
     body = {"contents": [{"role": "user", "parts": [{"text": PROMPT + text}]}],
             "generationConfig": {"temperature": 0, "responseMimeType": "application/json"}}
+    if thinking:  # 사고 수준: 맞춤법 교정에는 낮춰도 충분 (모델이 지원하지 않으면 아래에서 빼고 다시 시도)
+        body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": thinking}
     url = f"{API_BASE}/models/{model}:generateContent"
     for attempt in range(5):
         req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), method="POST",
@@ -129,6 +131,10 @@ def call_gemini(key: str, model: str, text: str) -> list[dict]:
                 wait = 20 * (attempt + 1)
                 print(f"\n  호출 한도 초과 — {wait}초 기다립니다")
                 time.sleep(wait)
+                continue
+            if e.code == 400 and "thinkingConfig" in body["generationConfig"] and "think" in detail.lower():
+                print("\n  이 모델은 사고 수준 설정을 받지 않아 빼고 다시 보냅니다 (--thinking 없이)")
+                del body["generationConfig"]["thinkingConfig"]
                 continue
             if e.code in (500, 502, 503, 504):
                 time.sleep(5 * (attempt + 1))
@@ -183,6 +189,8 @@ def main(argv=None) -> int:
     ap.add_argument("-o", "--output", help="OCR 결과 폴더")
     ap.add_argument("--title")
     ap.add_argument("--model", default=os.environ.get("GEMINI_MODEL", DEFAULT_MODEL), help=f"모델 이름 (기본 {DEFAULT_MODEL})")
+    ap.add_argument("--thinking", default="low", choices=["", "minimal", "low", "medium", "high"],
+                    help="사고 수준 (기본 low. 빈 값이면 보내지 않음). 모델이 받지 않으면 자동으로 뺌")
     ap.add_argument("--rpm", type=float, default=15, help="분당 최대 호출 수 (기본 15)")
     ap.add_argument("--chunk-chars", type=int, default=4000, help="한 번에 보낼 글자 수 (기본 4000)")
     ap.add_argument("--max-change", type=float, default=0.15, help="이보다 많이 바뀐 제안은 버림 (기본 0.15)")
@@ -224,7 +232,7 @@ def main(argv=None) -> int:
         ids = {para_id(p): p for p in ch}
         text = "\n".join(f"[{k}] {p}" for k, p in ids.items())
         try:
-            res = call_gemini(key, args.model, text)
+            res = call_gemini(key, args.model, text, args.thinking)
         except QuotaDaily as e:
             save_store(store_path, store)
             print(f"\n[중단] 하루 사용 한도에 도달했습니다. 내일 같은 명령을 다시 실행하면 이어서 합니다.\n  {e}")
