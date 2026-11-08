@@ -6,9 +6,13 @@
 <title>전자책 OCR 교정</title>
 <style>
   :root { --bg:#f4f5f7; --panel:#fff; --line:#d5d8de; --ink:#1d2330; --muted:#667085; --accent:#2f6fed;
-          --low:#e5484d; --pic:#2f6fed; --ok:#2e9b5f; }
+          --low:#e5484d; --pic:#2f6fed; --ok:#2e9b5f;
+          --md-h:#1f5fd1; --md-mk:#98a2b3; --md-quote:#2e7d4f; --md-img:#8a3ffc; --md-b:#b25e09; --md-cm:#98a2b3;
+          --md-q:rgba(229,72,77,.22); --md-sug:rgba(245,165,36,.22); }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#14171c; --panel:#1c2027; --line:#323844; --ink:#e6e9ef; --muted:#9aa3b2; --accent:#6a9bff; }
+    :root { --bg:#14171c; --panel:#1c2027; --line:#323844; --ink:#e6e9ef; --muted:#9aa3b2; --accent:#6a9bff;
+            --md-h:#7aa7ff; --md-mk:#6b7487; --md-quote:#6fcf97; --md-img:#b99bff; --md-b:#f0a35e; --md-cm:#6b7487;
+            --md-q:rgba(229,72,77,.3); --md-sug:rgba(245,165,36,.25); }
   }
   * { box-sizing:border-box; }
   html, body { height:100%; margin:0; }
@@ -45,8 +49,26 @@
   .pbox::after { content:"그림?"; position:absolute; left:0; top:0; font:11px/1 sans-serif; padding:2px 4px; background:var(--pic); color:#fff; }
   #sel { position:absolute; border:2px solid var(--ok); background:rgba(46,155,95,.18); pointer-events:none; }
   #imgwrap.crop #overlay { cursor:crosshair; }
-  #editor { flex:1; width:100%; border:0; padding:12px 14px; resize:none; outline:none; background:var(--panel); color:var(--ink);
-            font:15px/1.7 "Malgun Gothic","맑은 고딕","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif; tab-size:4; }
+  /* 글 칸: 투명한 입력칸(#editor) 뒤에 같은 글을 색칠한 층(#hl)을 깐다. 색만 바꾸고 굵기·크기는 그대로 두어 줄바꿈이 똑같다 */
+  #edwrap { position:relative; flex:1; min-height:0; }
+  #hl, #editor { position:absolute; inset:0; width:100%; height:100%; margin:0; border:0; padding:12px 14px;
+            font:15px/1.7 "Malgun Gothic","맑은 고딕","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
+            white-space:pre-wrap; overflow-wrap:break-word; word-break:normal; tab-size:4; letter-spacing:normal;
+            overflow-y:scroll; overflow-x:hidden; }
+  #hl { color:var(--ink); background:var(--panel); pointer-events:none; }
+  #editor { background:transparent; color:transparent; caret-color:var(--ink); resize:none; outline:none; }
+  #editor::selection { background:rgba(47,111,237,.32); color:transparent; }
+  #editor::placeholder { color:var(--muted); }
+  #hl .m-mk { color:var(--md-mk); }
+  #hl .m-h { color:var(--md-h); }
+  #hl .m-quote { color:var(--md-quote); }
+  #hl .m-img { color:var(--md-img); }
+  #hl .m-b { color:var(--md-b); }
+  #hl .m-cm { color:var(--md-cm); }
+  #hl .m-q { background:var(--md-q); border-radius:3px; }
+  #hl .m-sug { background:var(--md-sug); border-radius:3px; }
+  .legend { color:var(--muted); font-size:12px; }
+  .legend i { font-style:normal; padding:0 4px; border-radius:3px; }
   #mirror { position:absolute; visibility:hidden; white-space:pre-wrap; overflow-wrap:break-word; padding:12px 14px; border:0;
             font:15px/1.7 "Malgun Gothic","맑은 고딕","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif; }
   dialog { border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--ink); padding:16px 18px; max-width:min(560px, 92vw); }
@@ -84,7 +106,7 @@
   <button id="toggleRows" class="on" title="이미지 위에 OCR이 읽은 줄 표시">줄 상자</button>
   <button id="nextLow" title="신뢰도가 낮은 다음 줄로 이동 (Alt+L)">다음 의심 줄</button>
   <span class="sep"></span>
-  <button id="nextSug" title="다음 AI 교정 제안이 있는 곳으로 이동 (Alt+S)" hidden>다음 제안</button>
+  <button id="nextSug" title="AI 교정 제안이 남은 다음 쪽으로 이동 (Alt+S)" hidden>다음 제안 쪽</button>
   <button id="cropMode" title="이미지에서 영역을 끌어 그림으로 넣기 (Alt+G)">그림 넣기 모드</button>
   <button id="figs" title="넣은 그림 목록과 설명이 빠진 그림 점검">그림 목록</button>
   <span class="sep"></span>
@@ -99,14 +121,15 @@
     <div id="imgwrap"><div id="stage"><img id="pageImg" alt="원본 쪽 이미지"><div id="overlay"></div><div id="sel" hidden></div></div></div>
   </section>
   <section>
-    <div class="bar"><span class="t">교정 글</span>
-      <span style="color:var(--muted)">커서가 있는 곳의 쪽이 왼쪽에 나옵니다. <code>&lt;!-- p.N --&gt;</code> 줄은 지우지 마세요.</span>
+    <div class="bar"><span class="t" id="edTitle">교정 글</span>
+      <span class="legend">이 쪽 글만 보입니다 ·
+        <i style="color:var(--md-h)">## 제목</i><i style="color:var(--md-quote)">&gt; 주</i><i style="color:var(--md-img)">![그림]</i><i style="background:var(--md-q)">[?]</i><i style="background:var(--md-sug)">AI 제안 있음</i></span>
       <span class="grow"></span>
       <input id="findText" type="text" placeholder="찾기" size="10"><input id="replText" type="text" placeholder="바꿀 글" size="10">
       <button id="findNext">찾기</button><button id="replAll">모두 바꾸기</button>
     </div>
-    <textarea id="editor" spellcheck="false"></textarea>
-    <div id="sugPanel" hidden><div class="bar"><span class="t">AI 교정 제안</span><span id="sugInfo" style="color:var(--muted)"></span></div><div id="sugList"></div></div>
+    <div id="edwrap"><pre id="hl" aria-hidden="true"></pre><textarea id="editor" spellcheck="false"></textarea></div>
+    <div id="sugPanel" hidden><div class="bar"><span class="t">AI 교정 제안</span><span id="sugInfo" style="color:var(--muted)"></span><span class="grow"></span><button id="acceptPage" title="이 쪽 제안을 모두 글에 반영">이 쪽 모두 수락</button><button id="rejectPage" title="이 쪽 제안을 모두 거절">이 쪽 모두 거절</button></div><div id="sugList"></div></div>
   </section>
 </main>
 <div id="mirror"></div>
@@ -130,9 +153,10 @@
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
-const ed = $("editor"), img = $("pageImg"), stage = $("stage"), overlay = $("overlay"), wrap = $("imgwrap"), sel = $("sel");
+const hl = $("hl"), ed = $("editor"), img = $("pageImg"), stage = $("stage"), overlay = $("overlay"), wrap = $("imgwrap"), sel = $("sel");
 const MARK = /<!-- p\.(\d+) -->/g;
 let book = null, page = 1, zoom = "text" /* "text" = 글 영역에 맞춤, 0 = 쪽 폭에 맞춤, 숫자 = 배율 */, rowsData = {}, showRows = true, cropOn = false;
+let full = "", curFrom = -1, curTo = -1;  // full: 책 전체 글. 글 칸에는 full[curFrom:curTo] (지금 쪽)만 보인다
 let suspects = [], suspectPos = -1, curRow = -1, pendingBox = null, dirty = false, saveTimer = null, saving = false;
 
 function setStatus(t, err) { const s = $("status"); s.textContent = t; s.className = err ? "err" : ""; }
@@ -148,15 +172,64 @@ async function api(path, opt) {
 // ---- 쪽 ↔ 글 위치 -----------------------------------------------------
 function markers() {
   const out = []; let m; MARK.lastIndex = 0;
-  const t = ed.value;
+  const t = full;
   while ((m = MARK.exec(t))) out.push({ no: +m[1], pos: m.index, end: m.index + m[0].length });
   return out;
 }
-function pageAtCaret() {
-  const ms = markers(), c = ed.selectionStart;
+function pageOfPos(c) {  // 책 전체 글의 위치 → 쪽 번호
+  const ms = markers();
   let cur = null;
   for (const m of ms) { if (m.pos <= c) cur = m; else break; }
   return cur ? cur.no : (ms.length ? ms[0].no : 1);
+}
+function pageRange(no) {  // 그 쪽 글의 범위 (쪽 표시 줄 다음부터 다음 쪽 표시 앞까지). 글이 없는 쪽은 null
+  const ms = markers(), i = ms.findIndex(m => m.no === no);
+  if (i < 0) return ms.length ? null : { from: 0, to: full.length };
+  let from = ms[i].end; if (full[from] === "\n") from++;
+  let to = i + 1 < ms.length ? ms[i + 1].pos : full.length;
+  while (to > from && full[to - 1] === "\n") to--;  // 끝 빈 줄은 밖에 두어 다음 쪽 표시가 늘 제 줄에 있게
+  return { from, to };
+}
+function loadPageText(no, keepScroll) {
+  const r = pageRange(no), top = ed.scrollTop;
+  if (!r) { curFrom = curTo = -1; ed.value = ""; ed.readOnly = true; ed.placeholder = "이 쪽에는 글이 없습니다 (그림만 있는 쪽이거나 OCR이 글을 찾지 못한 쪽)"; }
+  else { curFrom = r.from; curTo = r.to; ed.value = full.slice(r.from, r.to); ed.readOnly = false; ed.placeholder = ""; }
+  $("edTitle").textContent = no + "쪽 글";
+  if (!keepScroll) { ed.setSelectionRange(0, 0); ed.scrollTop = 0; } else ed.scrollTop = top;
+  highlight();
+}
+function syncFull() {  // 글 칸에서 고친 것을 책 전체 글에 반영
+  if (curFrom < 0) return;
+  full = full.slice(0, curFrom) + ed.value + full.slice(curTo); curTo = curFrom + ed.value.length;
+}
+function gotoGlobal(k, len) {  // 책 전체 글의 위치로 이동 (필요하면 쪽을 넘김)
+  const no = pageOfPos(k);
+  if (no !== page) showPage(no, {});
+  const a = k - curFrom; if (curFrom < 0 || a < 0 || a > ed.value.length) return;
+  ed.focus({ preventScroll: true }); ed.setSelectionRange(a, a + (len || 0)); scrollEditorTo(a);
+}
+
+// ---- 마크다운 색칠 ------------------------------------------------------
+const escH = x => x.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+function hlInline(t) {
+  return escH(t)
+    .replace(/!\[([^\]]*)\]\(([^)]*)\)/g, '<span class="m-img">![<span class="m-alt">$1</span>]($2)</span>')
+    .replace(/\*\*([^*]+)\*\*/g, '<span class="m-mk">**</span><span class="m-b">$1</span><span class="m-mk">**</span>')
+    .replace(/&lt;!--.*?--&gt;/g, m => '<span class="m-cm">' + m + "</span>")
+    .replace(/\[\?\]/g, '<span class="m-q">[?]</span>');
+}
+function hlLine(line) {
+  let m, out;
+  if ((m = /^(#{1,6})(\s.*|)$/.exec(line))) out = '<span class="m-mk">' + m[1] + '</span><span class="m-h">' + hlInline(m[2]) + "</span>";
+  else if ((m = /^(>\s?)(.*)$/.exec(line))) out = '<span class="m-quote"><span class="m-mk">' + escH(m[1]) + "</span>" + hlInline(m[2]) + "</span>";
+  else if ((m = /^(\s*)([-*+]|\d+[.)])(\s.*)$/.exec(line))) out = escH(m[1]) + '<span class="m-mk">' + escH(m[2]) + "</span>" + hlInline(m[3]);
+  else if (/^\s*(\*{3,}|-{3,}|_{3,})\s*$/.test(line)) out = '<span class="m-mk">' + escH(line) + "</span>";
+  else out = hlInline(line);
+  return line.trim() && sugMap.has(line.trim()) ? '<span class="m-sug">' + out + "</span>" : out;
+}
+function highlight() {
+  hl.innerHTML = ed.value.split("\n").map(hlLine).join("\n") + "\n";
+  hl.scrollTop = ed.scrollTop;
 }
 function scrollEditorTo(pos) {
   const mi = $("mirror");
@@ -165,12 +238,8 @@ function scrollEditorTo(pos) {
   const span = document.createElement("span"); span.textContent = "|"; mi.appendChild(span);
   ed.scrollTop = Math.max(0, span.offsetTop - ed.clientHeight / 3);
 }
-function focusPageText(no) {
-  const m = markers().find(x => x.no === no);
-  if (!m) return;
-  ed.focus({ preventScroll: true });
-  ed.setSelectionRange(m.end, m.end);
-  scrollEditorTo(m.end);
+function focusPageText(no) {  // 글 칸에는 그 쪽 글만 있으므로 맨 위로
+  ed.setSelectionRange(0, 0); ed.scrollTop = 0; hl.scrollTop = 0;
 }
 
 // ---- 이미지 -----------------------------------------------------------
@@ -212,6 +281,7 @@ async function showPage(no, opts) {
   const changed = no !== page || !img.src;
   page = no; $("pageNo").value = no; $("pageTotal").textContent = "/ " + book.pages.length;
   $("imgTitle").textContent = no + "쪽 — " + book.pages[no - 1].name;
+  if (changed || opts.reloadText) loadPageText(no, opts.keepText);
   if (changed) {
     img.src = "/img/" + no;
     sel.hidden = true; pendingBox = null; curRow = -1;
@@ -246,16 +316,12 @@ let wantTextScroll = false;  // 쪽을 바꾼 뒤 이미지가 늦게 뜨면 그
 img.addEventListener("load", () => { drawOverlay(); if (zoom === "text" && wantTextScroll) applyZoom(true); wantTextScroll = false; });
 
 // ---- 이미지 위의 줄 → 글 위치 찾기 ------------------------------------
-function findRowInText(no, text) {
-  const v = ed.value, ms = markers();
-  const i = ms.findIndex(m => m.no === no);
-  const from = i >= 0 ? ms[i].end : 0;
-  const to = i >= 0 && i + 1 < ms.length ? ms[i + 1].pos : v.length;
-  const region = v.slice(from, to).replace(/[⁠]/g, "");
+function findRowInText(no, text) {  // 글 칸(지금 쪽)에서 이미지 줄의 글 찾기
+  const region = ed.value;
   const probes = [text, text.slice(0, 14), text.slice(-14), text.slice(0, 6)].filter(s => s && s.length >= 3);
   for (const p of probes) {
     const k = region.indexOf(p);
-    if (k >= 0) return { start: from + k, len: p.length };
+    if (k >= 0) return { start: k, len: p.length };
   }
   return null;
 }
@@ -335,23 +401,21 @@ function insertAtCaret(s) {
 }
 
 // ---- 저장 -------------------------------------------------------------
-function onEdited() { dirty = true; setStatus("수정됨…"); clearTimeout(saveTimer); saveTimer = setTimeout(save, 1500); }
+function markDirty() { dirty = true; setStatus("수정됨…"); clearTimeout(saveTimer); saveTimer = setTimeout(save, 1500); }
+function onEdited() { syncFull(); highlight(); markDirty(); }
 async function save() {
   if (saving || !dirty) return;
   saving = true; dirty = false;
-  try { await api("/api/md", { method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: ed.value });
+  try { await api("/api/md", { method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: full });
         setStatus("저장됨 " + new Date().toLocaleTimeString("ko-KR")); }
   catch (e) { dirty = true; setStatus("저장 실패: " + e.message, true); }
   finally { saving = false; if (dirty) { clearTimeout(saveTimer); saveTimer = setTimeout(save, 3000); } }
 }
 ed.addEventListener("input", onEdited);
 ed.addEventListener("blur", save);
+ed.addEventListener("scroll", () => { hl.scrollTop = ed.scrollTop; });
 window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
 
-// ---- 커서 → 쪽 ---------------------------------------------------------
-let syncT = null;
-function syncPage() { clearTimeout(syncT); syncT = setTimeout(() => { const n = pageAtCaret(); if (n !== page && book) showPage(n, {}); }, 120); }
-["click", "keyup", "focus"].forEach(ev => ed.addEventListener(ev, syncPage));
 
 // ---- 도구 모음 ---------------------------------------------------------
 $("prev").onclick = () => showPage(page - 1, { moveText: true });
@@ -373,7 +437,7 @@ wrap.addEventListener("wheel", e => {  // Ctrl+휠: 마우스 위치를 기준�
 $("saveNow").onclick = () => { dirty = true; save(); };
 $("nextLow").onclick = async () => {
   if (!suspects.length) { setStatus("신뢰도가 낮은 줄이 없습니다"); return; }
-  const here = pageAtCaret();
+  const here = page;
   let i = suspects.findIndex((s, k) => k > suspectPos && s.page >= here);
   if (suspectPos < 0 || i < 0) i = suspects.findIndex(s => s.page >= here);
   if (i < 0) i = 0;
@@ -387,31 +451,33 @@ $("nextLow").onclick = async () => {
 };
 
 // ---- 찾기 / 바꾸기 -----------------------------------------------------
-$("findNext").onclick = () => {
+$("findNext").onclick = () => {  // 책 전체에서 찾는다 (다른 쪽에 있으면 그 쪽으로 넘어감)
   const q = $("findText").value; if (!q) return;
-  let k = ed.value.indexOf(q, ed.selectionEnd);
-  if (k < 0) k = ed.value.indexOf(q);
+  const g = curFrom >= 0 ? curFrom + ed.selectionEnd : (pageRange(page) || { from: 0 }).from;
+  let k = full.indexOf(q, g);
+  if (k < 0) k = full.indexOf(q);
   if (k < 0) { setStatus("찾는 글이 없습니다", true); return; }
-  ed.focus({ preventScroll: true }); ed.setSelectionRange(k, k + q.length); scrollEditorTo(k); syncPage();
+  gotoGlobal(k, q.length); setStatus(page + "쪽에서 찾았습니다");
 };
-$("replAll").onclick = () => {
+$("replAll").onclick = () => {  // 책 전체에서 바꾼다
   const q = $("findText").value, r = $("replText").value; if (!q) return;
-  const n = ed.value.split(q).length - 1; if (!n) { setStatus("찾는 글이 없습니다", true); return; }
-  if (!confirm("'" + q + "' " + n + "곳을 '" + r + "' (으)로 바꿉니다. 계속할까요?")) return;
-  const top = ed.scrollTop; ed.value = ed.value.split(q).join(r); ed.scrollTop = top; onEdited(); setStatus(n + "곳을 바꿨습니다");
+  if (/<!--|-->/.test(q)) { setStatus("쪽 표시(<!-- p.N -->)는 바꿀 수 없습니다", true); return; }
+  const n = full.split(q).length - 1; if (!n) { setStatus("찾는 글이 없습니다", true); return; }
+  if (!confirm("책 전체에서 '" + q + "' " + n + "곳을 '" + r + "' (으)로 바꿉니다. 계속할까요?")) return;
+  full = full.split(q).join(r); loadPageText(page, true); renderSuggestions(); markDirty(); setStatus(n + "곳을 바꿨습니다");
 };
 
 // ---- 그림 목록 ---------------------------------------------------------
 $("figs").onclick = () => {
   const list = $("figlist"); list.innerHTML = "";
   const re = /!\[([^\]\n]*)\]\((figures\/[^)\s]+)\)/g; let m, total = 0, missing = 0;
-  while ((m = re.exec(ed.value))) {
-    total++; const alt = m[1].trim(), pos = m.index;
+  while ((m = re.exec(full))) {
+    total++; const alt = m[1].trim(), pos = m.index, mlen = m[0].length;
     const before = markers().filter(x => x.pos <= pos).pop();
     const li = document.createElement("li");
     if (!alt) { missing++; li.innerHTML = '<span class="warn">설명 없음</span> '; } else li.append(document.createTextNode(alt.slice(0, 80) + (alt.length > 80 ? "…" : "") + " "));
     const s = document.createElement("span"); s.style.color = "var(--muted)"; s.textContent = "(" + (before ? before.no + "쪽, " : "") + m[2] + ")"; li.append(s);
-    li.onclick = () => { $("figListDlg").close(); ed.focus({ preventScroll: true }); ed.setSelectionRange(pos, pos); scrollEditorTo(pos); syncPage(); };
+    li.onclick = () => { $("figListDlg").close(); gotoGlobal(pos, mlen); };
     list.appendChild(li);
   }
   $("figSummary").innerHTML = total ? ("그림 " + total + "개 중 " + (missing ? '<span class="warn">설명 없음 ' + missing + "개</span>" : "모두 설명이 있습니다")) : "아직 넣은 그림이 없습니다.";
@@ -442,19 +508,25 @@ function lcsDiff(a, b) {  // 글자 단위 차이. 너무 길면 앞뒤 공통�
   if (suf) out.push(["=", a.slice(n - suf)]);
   return out;
 }
-function paragraphsOfPage(no) {  // 현재 쪽 구간의 문단(줄) 목록
-  const v = ed.value, ms = markers(), i = ms.findIndex(m => m.no === no);
-  const from = i >= 0 ? ms[i].end : 0, to = i >= 0 && i + 1 < ms.length ? ms[i + 1].pos : v.length;
-  return v.slice(from, to).split("\n").map(x => x.trim()).filter(Boolean);
+function paragraphsOfPage(no) {  // 그 쪽의 문단(줄) 목록
+  const r = pageRange(no); if (!r) return [];
+  return full.slice(r.from, r.to).split("\n").map(x => x.trim()).filter(Boolean);
+}
+function sugPages() {  // 제안이 남은 쪽 번호들
+  return markers().map(m => m.no).filter(no => paragraphsOfPage(no).some(t => sugMap.has(t)));
 }
 function renderSuggestions() {
   const panel = $("sugPanel"), list = $("sugList");
+  highlight();
   if (!sugMap.size) { panel.hidden = true; $("nextSug").hidden = true; return; }
-  $("nextSug").hidden = false; $("nextSug").textContent = "다음 제안 (" + sugMap.size + ")";
-  const here = paragraphsOfPage(page).filter(t => sugMap.has(t));
+  const pages = sugPages();
+  $("nextSug").hidden = false; $("nextSug").textContent = "다음 제안 쪽 (" + pages.length + "쪽 남음)";
+  const here = [...new Set(paragraphsOfPage(page).filter(t => sugMap.has(t)))];
   panel.hidden = false; list.innerHTML = "";
-  $("sugInfo").textContent = here.length ? "이 쪽 " + here.length + "건 · 전체 " + sugMap.size + "건 (원문은 수락 전까지 그대로입니다)" : "이 쪽에는 제안이 없습니다 · 전체 " + sugMap.size + "건 → '다음 제안'";
-  for (const orig of [...new Set(here)]) {
+  $("acceptPage").hidden = $("rejectPage").hidden = !here.length;
+  $("sugInfo").textContent = here.length ? "이 쪽 " + here.length + "건 · 남은 제안 " + sugMap.size + "건 (원문은 수락 전까지 그대로입니다)"
+    : "이 쪽에는 제안이 없습니다 · 남은 제안 " + sugMap.size + "건 → '다음 제안 쪽'";
+  for (const orig of here) {
     const s = sugMap.get(orig), card = document.createElement("div"); card.className = "sug";
     const diff = lcsDiff(orig, s.sug); const esc = x => x.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
     const vis = x => esc(x).replace(/ /g, '<span class="sp">␣</span>');  // 빠지거나 더해진 띄어쓰기를 보이게
@@ -466,6 +538,8 @@ function renderSuggestions() {
     const rej = document.createElement("button"); rej.textContent = "거절";
     acc.onclick = () => acceptSug(orig); rej.onclick = () => resolveSug(orig, "rejected");
     card.querySelector(".btns").append(acc, rej); list.appendChild(card);
+    card.querySelector(".tx").style.cursor = "pointer"; card.querySelector(".tx").title = "누르면 글 칸에서 이 문단을 표시합니다";
+    card.querySelector(".tx").onclick = () => { const k = ed.value.indexOf(orig); if (k >= 0) { ed.focus({ preventScroll: true }); ed.setSelectionRange(k, k + orig.length); scrollEditorTo(k); } };
   }
 }
 async function resolveSug(orig, status) {
@@ -473,23 +547,30 @@ async function resolveSug(orig, status) {
   catch (e) { setStatus("제안 상태 저장 실패: " + e.message, true); return; }
   sugMap.delete(orig); renderSuggestions();
 }
-function acceptSug(orig) {
-  const s = sugMap.get(orig); if (!s) return;
-  const v = ed.value, ms = markers(), i = ms.findIndex(m => m.no === page);
-  const from = i >= 0 ? ms[i].end : 0, to = i >= 0 && i + 1 < ms.length ? ms[i + 1].pos : v.length;
-  const k = v.slice(from, to).indexOf(orig);
-  if (k < 0) { setStatus("원문이 이미 바뀌어 적용하지 못했습니다 (제안을 거절 처리하세요)", true); return; }
-  const at = from + k, top = ed.scrollTop;
-  ed.value = v.slice(0, at) + s.sug + v.slice(at + orig.length); ed.scrollTop = top;
-  onEdited(); resolveSug(orig, "accepted"); setStatus("제안을 반영했습니다");
+async function acceptSug(orig, quiet) {
+  const s = sugMap.get(orig); if (!s) return false;
+  const v = ed.value, k = v.indexOf(orig);
+  if (k < 0) { setStatus("원문이 이미 바뀌어 적용하지 못했습니다 (제안을 거절 처리하세요)", true); return false; }
+  const top = ed.scrollTop;
+  ed.value = v.slice(0, k) + s.sug + v.slice(k + orig.length); ed.scrollTop = top;
+  onEdited(); await resolveSug(orig, "accepted"); if (!quiet) setStatus("제안을 반영했습니다");
+  return true;
 }
+async function resolvePage(accept) {
+  const here = [...new Set(paragraphsOfPage(page).filter(t => sugMap.has(t)))];
+  if (!here.length) return;
+  if (!confirm("이 쪽 제안 " + here.length + "건을 모두 " + (accept ? "수락" : "거절") + "할까요?")) return;
+  let n = 0;
+  for (const orig of here) { if (accept ? await acceptSug(orig, true) : (await resolveSug(orig, "rejected"), true)) n++; }
+  setStatus("이 쪽 제안 " + n + "건을 " + (accept ? "반영했습니다" : "거절했습니다"));
+}
+$("acceptPage").onclick = () => resolvePage(true);
+$("rejectPage").onclick = () => resolvePage(false);
 $("nextSug").onclick = () => {
-  const v = ed.value; let best = null;
-  const ms = markers(), here = ed.selectionStart;
-  for (const orig of sugMap.keys()) { const k = v.indexOf(orig); if (k >= 0 && (k > here ? (best === null || k < best.k || best.k <= here) : (best === null || (best.k <= here && k < best.k)))) best = { k, orig }; }
-  if (!best) { setStatus("이 글에서 찾을 수 있는 제안이 없습니다"); return; }
-  ed.focus({ preventScroll: true }); ed.setSelectionRange(best.k, best.k + best.orig.length); scrollEditorTo(best.k); syncPage();
-  const n = pageAtCaret(); if (n === page) renderSuggestions();
+  const pages = sugPages();
+  if (!pages.length) { setStatus("남은 제안이 없습니다"); return; }
+  const nx = pages.find(no => no > page) || pages[0];
+  showPage(nx, {}); setStatus(nx === page && pages.length === 1 ? "제안이 남은 쪽은 이 쪽뿐입니다" : nx + "쪽 제안");
 };
 async function loadSuggestions() {
   try { const l = await api("/api/suggestions"); sugMap = new Map(l.map(x => [x.orig, x])); } catch (e) { sugMap = new Map(); }
@@ -512,13 +593,12 @@ window.addEventListener("keydown", e => {
     book = await api("/api/book");
     document.title = book.title + " — 교정";
     $("title").textContent = book.title;
-    ed.value = book.md; dirty = false;
-    ed.setSelectionRange(0, 0);  // 값을 넣으면 커서가 글 끝으로 가므로 맨 앞(1쪽)에서 시작
+    full = book.md.replace(/\r\n/g, "\n"); dirty = false;
     suspects = await api("/api/suspects");
     await loadSuggestions();
     $("nextLow").textContent = "다음 의심 줄 (" + suspects.length + ")";
     applyZoom();
-    await showPage(pageAtCaret(), {});
+    page = 0; await showPage(markers().length ? markers()[0].no : 1, {});
     setStatus("준비됨");
   } catch (e) { setStatus("불러오기 실패: " + e.message, true); }
 })();
