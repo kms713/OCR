@@ -78,7 +78,8 @@ LD플레이어로 연 전자책을 한 쪽씩 넘기며 캡처하고, 글자만 
   · 호출 횟수·한도에 맞춰 나눠 보내며, 이미 검사한 문단은 다시 보내지 않습니다.
     하루 한도에 걸리면 멈추니 다음에 다시 실행하면 이어서 합니다.
   · 기본 모델은 gemini-3.5-flash-lite (빠름). 더 큰 모델은 느리고 자주 혼잡(503)합니다:
-      ... ebook_suggest.py books\책이름 --model gemini-3.8-flash --thinking low --timeout 300
+      ... ebook_suggest.py books\책이름 --model gemini-3.8-flash --thinking low --timeout 300 --chunk-chars 2000 --redo
+    (2000자에 약 80초. --redo 는 이미 검사한 문단도 다시 보냄. 중간에 멈추면 같은 명령을 다시 실행하면 이어서 함)
   · 처음엔 일부만 시험:  ... --limit 3
   · 응답이 안 오거나 시간 초과가 나면 먼저 연결 점검:  ... ebook_suggest.py --check
     - [점검 성공]이 나오면 연결은 정상입니다. 책으로 다시 해 보고, 그래도 느리면 --chunk-chars 1000

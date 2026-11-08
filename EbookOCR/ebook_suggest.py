@@ -312,7 +312,8 @@ def main(argv=None) -> int:
     ap.add_argument("--chunk-chars", type=int, default=4000, help="한 번에 보낼 글자 수 (기본 4000)")
     ap.add_argument("--max-change", type=float, default=0.15, help="이보다 많이 바뀐 제안은 버림 (기본 0.15)")
     ap.add_argument("--limit", type=int, default=0, help="이번에 보낼 덩어리 수 상한 (0 = 끝까지)")
-    ap.add_argument("--redo", action="store_true", help="이미 검사한 문단도 다시 보냄")
+    ap.add_argument("--redo", action="store_true",
+                    help="이미 검사한 문단도 다시 보냄. 중간에 멈췄다면 같은 명령(같은 모델)으로 다시 실행하면 이어서 함")
     args = ap.parse_args(argv)
     if args.thinking == "none":  # PowerShell 은 빈 "" 를 넘기지 않으므로 none 으로도 받는다
         args.thinking = ""
@@ -335,12 +336,24 @@ def main(argv=None) -> int:
 
     store_path = out_dir / f"{title}_제안.json"
     store = load_store(store_path)
-    done = set(store["checked"]) if not args.redo else set()
+    if args.redo:  # 다시 검사: 같은 모델로 하던 다시 검사가 멈춰 있으면 거기서 이어서
+        redo = store.get("redo")
+        if redo and redo.get("model") == args.model and redo.get("done"):
+            print(f"멈췄던 다시 검사(모델 {args.model})를 이어서 합니다 — 이미 끝낸 문단 {len(redo['done'])}개는 건너뜁니다")
+        else:
+            redo = store["redo"] = {"model": args.model, "done": []}
+        done = set(redo["done"])
+    else:
+        done = set(store["checked"])
     paras = [p for p in read_paragraphs(src.read_bytes().decode("utf-8")) if para_id(p) not in done]
     chunks = chunk(paras, args.chunk_chars)
+    n_all = len(chunks)
     if args.limit:
         chunks = chunks[:args.limit]
     if not chunks:
+        if args.redo:
+            store.pop("redo", None)
+            save_store(store_path, store)
         print("검사할 새 문단이 없습니다.")
         return 0
     print(f"모델 {args.model} · 문단 {len(paras)}개를 {len(chunks)}번에 나눠 보냅니다 (분당 {args.rpm:g}회 이하)")
@@ -392,8 +405,14 @@ def main(argv=None) -> int:
             else:
                 n_drop += 1
         store["checked"] = sorted(set(store["checked"]) | set(ids))
+        if args.redo:
+            store["redo"]["done"] = sorted(set(store["redo"]["done"]) | set(ids))
         save_store(store_path, store)
         print(f"\r  {i}/{len(chunks)} 덩어리 완료 ({time.monotonic() - t_call:.0f}초) — 제안 {n_sug}개          ", flush=True)
+    if args.redo and n_bad == 0 and len(chunks) == n_all:
+        store.pop("redo", None)  # 다시 검사를 끝까지 함 → 다음 --redo 는 처음부터
+    elif args.redo:
+        print("\n  다시 검사가 아직 남았습니다. 같은 명령(--redo 포함)을 다시 실행하면 이어서 합니다.")
     save_store(store_path, store)
     print(f"\n완료: 제안 {n_sug}개 (너무 많이 바뀌어 버린 것 {n_drop}개)"
           + (f", 답을 못 쓴 덩어리 {n_bad}개 (다시 실행하면 재시도)" if n_bad else ""))
