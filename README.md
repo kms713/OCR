@@ -33,3 +33,17 @@
 ## 저장소에 올리지 않는 것
 
 - 시험지 PDF·이미지와 그 변환 결과 (저장소가 공개라서). `gpu_test/`, `books/` 폴더는 자동으로 빠집니다.
+
+## 코드 업데이트 (Windows, Git)
+
+처음 한 번: Git for Windows 설치 후, 이 폴더(예: `C:\AI\OCR`)에서 PowerShell로 연결한다. `books`, `.venv`, `gemini_key.txt`는 그대로 남는다.
+
+```
+git init
+git remote add origin https://github.com/kms713/OCR.git
+git fetch origin claude/upbeat-hamilton-eqs0os
+git checkout -f -B claude/upbeat-hamilton-eqs0os origin/claude/upbeat-hamilton-eqs0os
+```
+
+그다음부터는 `업데이트.bat`을 두 번 누르면 최신 코드를 받는다 (`git pull --ff-only`).
+
