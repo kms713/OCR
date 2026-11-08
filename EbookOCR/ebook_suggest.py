@@ -225,11 +225,27 @@ def call_gemini(key: str, model: str, text: str, thinking: str = "", timeout: in
     if finish.startswith("BLOCKED") or finish in ("SAFETY", "RECITATION", "PROHIBITED_CONTENT", "OTHER"):
         raise BadReply(f"모델이 답을 거부했습니다 ({finish})")
     txt = re.sub(r"^```(?:json)?\s*|\s*```$", "", txt.strip())
-    try:
-        res = json.loads(txt) if txt else []
-    except ValueError:
+    res = parse_reply(txt)
+    if res is None:
         raise BadReply(f"답이 JSON 형식이 아닙니다: {txt[:120]!r}")
-    return [x for x in res if isinstance(x, dict) and "id" in x and "text" in x] if isinstance(res, list) else []
+    return res
+
+
+def parse_reply(txt: str) -> list[dict] | None:
+    """답에서 [{"id":..,"text":..}, ...] 배열을 찾는다. 앞에 군더더기가 붙은 답도 살린다. 못 찾으면 None."""
+    if not txt:
+        return []
+    dec = json.JSONDecoder()
+    for m in re.finditer(r"\[", txt):
+        try:
+            res, _ = dec.raw_decode(txt, m.start())
+        except ValueError:
+            continue
+        if isinstance(res, list) and (not res or all(isinstance(x, dict) for x in res)):
+            if res and not any("id" in x and "text" in x for x in res):
+                continue
+            return [x for x in res if "id" in x and "text" in x]
+    return None
 
 
 def run_check(key: str, args) -> int:
@@ -343,8 +359,15 @@ def main(argv=None) -> int:
         print(f"\r  {i}/{len(chunks)} 덩어리 보내는 중... (응답이 올 때까지 최대 {args.timeout}초)", end="", flush=True)
         t_call = time.monotonic()
         try:
-            res = call_gemini(key, args.model, text, args.thinking, args.timeout, max_tokens,
-                              args.temperature, args.no_proxy)
+            try:
+                res = call_gemini(key, args.model, text, args.thinking, args.timeout, max_tokens,
+                                  args.temperature, args.no_proxy)
+            except BadReply as e:  # 작은 모델은 가끔 형식이 깨진 답을 보냄 → 한 번 더
+                print(f"\n  {i}번째 덩어리 답을 못 써서 한 번 더 보냅니다 ({str(e)[:60]})", flush=True)
+                time.sleep(gap)
+                last = time.monotonic()
+                res = call_gemini(key, args.model, text, args.thinking, args.timeout, max_tokens,
+                                  args.temperature, args.no_proxy)
         except BadReply as e:
             print(f"\n  [건너뜀] {i}번째 덩어리: {e}  (검사 안 한 것으로 남겨 다음에 다시 보냅니다)")
             n_bad += 1
@@ -371,6 +394,7 @@ def main(argv=None) -> int:
         store["checked"] = sorted(set(store["checked"]) | set(ids))
         save_store(store_path, store)
         print(f"\r  {i}/{len(chunks)} 덩어리 완료 ({time.monotonic() - t_call:.0f}초) — 제안 {n_sug}개          ", flush=True)
+    save_store(store_path, store)
     print(f"\n완료: 제안 {n_sug}개 (너무 많이 바뀌어 버린 것 {n_drop}개)"
           + (f", 답을 못 쓴 덩어리 {n_bad}개 (다시 실행하면 재시도)" if n_bad else ""))
     print(f"  저장: {store_path.resolve()}")
