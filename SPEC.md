@@ -265,7 +265,7 @@ class PageResult:
 **교정 편집기** (`ebook_review.py` + `ebook_review.html`)
 - `http.server`, `127.0.0.1`만, Host 검사(DNS rebinding 방지), 쓰기(PUT/POST)는 `X-Ebook-Review: 1` 머리글 필요. 외부 CDN 없음.
 - 작업 파일 `책이름_교정.md`: 처음 열 때 `_교정용.md`를 복사해 만들고 이후 **절대 덮어쓰지 않음**(OCR 재실행에도). 저장 때 `.md.bak` 한 벌.
-- 쪽 번호 = 정렬된 이미지의 1부터 순번 (`ebook_ocr.collect_pages`와 같은 규칙. 바꾸면 둘 다 고칠 것). 글↔쪽 연동은 커서 위쪽 가장 가까운 `<!-- p.N -->`. 쪽을 넘어 이어 붙은 문단은 시작 쪽만 표시됨.
+- 쪽 번호 = 정렬된 이미지의 1부터 순번 (`ebook_ocr.collect_pages`와 같은 규칙. 바꾸면 둘 다 고칠 것). 글 칸은 `<!-- p.N -->`로 나눈 그 쪽 글만 보임. 쪽을 넘어 이어 붙은 문단은 시작 쪽에 들어 있음.
 - 이미지 위 줄 상자·신뢰도(<0.8 강조)·그림 후보는 `cache/*.json`의 `rows`·`pictures` 사용. 줄을 누르면 글에서 부분 문자열 검색.
 - API: `GET /api/book`, `/api/suspects`, `/api/rows/N`, `/img/N`, `/figures/이름`, `PUT /api/md`, `POST /api/crop {page, box}`. 그림은 **원본 이미지**에서 잘라 `책이름_OCR/figures/pNNNN_KK.png`.
 - 그림 줄: `![설명](figures/…png)` 한 줄. 문단 끝(다음 빈 줄 앞)에 삽입.
