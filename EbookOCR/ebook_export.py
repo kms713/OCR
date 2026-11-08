@@ -32,7 +32,47 @@ from pathlib import Path
 
 PAGE_MARK = re.compile(r"^<!--\s*p\.(\d+)\s*-->\s*$")
 FIGURE = re.compile(r"^!\[([^\]]*)\]\(([^)\s]+)\)\s*$")
-HEADING = re.compile(r"^(#{1,3})\s+(.*\S)\s*$")
+HEADING = re.compile(r"^(#{1,4})\s+(.*\S)\s*$")  # # 제목, ## 대주제, ### 중주제, #### 소주제
+# 글 속 서식: **굵게**, *기울임*, <u>밑줄</u> (편집기 버튼이 쓰는 형식)
+# 기울임 *…* 은 앞뒤가 영문·숫자일 때만 제외 (2*3*4 같은 곱셈). 한글 조사가 바로 붙어도(*집단 지성*의) 인식
+INLINE = re.compile(r"\*\*(.+?)\*\*|(?<![*A-Za-z0-9])\*(?!\s)(.+?)(?<!\s)\*(?![*A-Za-z0-9])|<u>(.+?)</u>")
+
+
+def inline_runs(text: str) -> list[tuple[str, str]]:
+    """'가 **나** <u>다</u>' → [('가 ', ''), ('나', 'b'), (' ', ''), ('다', 'u')]. 서식은 겹치지 않는 한 단계만."""
+    out, k = [], 0
+    for m in INLINE.finditer(text):
+        if m.start() > k:
+            out.append((text[k:m.start()], ""))
+        if m.group(1) is not None:
+            out.append((m.group(1), "b"))
+        elif m.group(2) is not None:
+            out.append((m.group(2), "i"))
+        else:
+            out.append((m.group(3), "u"))
+        k = m.end()
+    if k < len(text):
+        out.append((text[k:], ""))
+    return out
+
+
+def ai_inline(text: str) -> str:
+    """AI용 글: 굵게·기울임은 마크다운 그대로, 밑줄 태그는 지운다."""
+    return re.sub(r"</?u>", "", text)
+
+
+def add_inline(p, text: str, size=None, color=None, italic=None):
+    """Word 문단에 서식 있는 글 넣기."""
+    for t, f in inline_runs(text):
+        r = p.add_run(t)
+        r.bold = True if f == "b" else None
+        r.italic = True if f == "i" else italic
+        r.underline = True if f == "u" else None
+        if size:
+            r.font.size = size
+        if color is not None:
+            r.font.color.rgb = color
+    return p
 NOTE = re.compile(r"^>\s?(.*)$")
 SOFT = "⁠"  # ebook_ocr.py 가 줄 경계에 쓰는 보이지 않는 표시 (저장 때 지우지만 혹시 남았으면 제거)
 NO_ALT = "(설명 없음)"
@@ -107,9 +147,9 @@ def build_ai_markdown(parsed: Parsed, title: str, page_marks: bool) -> str:
         if b.kind == "title":
             lines += [f"# {b.text}", ""]
         elif b.kind == "heading":
-            lines += ["#" * (b.level + 1) + f" {b.text}", ""]
+            lines += ["#" * (b.level + 1) + f" {ai_inline(b.text)}", ""]
         elif b.kind == "note":
-            lines += [f"> {b.text}", ""]
+            lines += [f"> {ai_inline(b.text)}", ""]
         elif b.kind == "figure":
             desc = b.text or (f"(설명 없음 — 원본 {b.page}쪽)" if b.page else NO_ALT)
             lines += [f"> [그림] {desc}", ""]
@@ -117,7 +157,7 @@ def build_ai_markdown(parsed: Parsed, title: str, page_marks: bool) -> str:
             if page_marks:
                 lines += [f"[p.{b.page}]", ""]
         else:
-            lines += [b.text, ""]
+            lines += [ai_inline(b.text), ""]
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -182,12 +222,11 @@ def build_docx(parsed: Parsed, title: str, base: Path, path: Path, captions: boo
         if b.kind == "title":
             doc.add_paragraph(b.text, style="Title")
         elif b.kind == "heading":
-            doc.add_heading(b.text, level=min(3, b.level))
+            h = doc.add_heading("", level=min(3, b.level))
+            add_inline(h, b.text)
         elif b.kind == "note":
             p = doc.add_paragraph()
-            r = p.add_run("주  " + re.sub(r"^주\s*[:：]\s*", "", b.text))
-            r.font.size = Pt(9)
-            r.font.color.rgb = RGBColor(0x66, 0x70, 0x85)
+            add_inline(p, "주  " + re.sub(r"^주\s*[:：]\s*", "", b.text), Pt(9), RGBColor(0x66, 0x70, 0x85))
             p.paragraph_format.left_indent = Cm(0.8)
         elif b.kind == "figure":
             f = base / b.src
@@ -213,7 +252,7 @@ def build_docx(parsed: Parsed, title: str, base: Path, path: Path, captions: boo
                 r.font.italic = True
                 r.font.color.rgb = RGBColor(0x66, 0x70, 0x85)
         elif b.kind == "para":
-            doc.add_paragraph(b.text)
+            add_inline(doc.add_paragraph(), b.text)
         # page 표시는 완성본에 넣지 않음
     path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(path))

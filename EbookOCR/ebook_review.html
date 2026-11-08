@@ -7,11 +7,11 @@
 <style>
   :root { --bg:#f4f5f7; --panel:#fff; --line:#d5d8de; --ink:#1d2330; --muted:#667085; --accent:#2f6fed;
           --low:#e5484d; --pic:#2f6fed; --ok:#2e9b5f;
-          --md-h:#1f5fd1; --md-mk:#98a2b3; --md-quote:#2e7d4f; --md-img:#8a3ffc; --md-b:#b25e09; --md-cm:#98a2b3;
+          --md-h:#1f5fd1; --md-h2:#0e7c86; --md-h3:#6941c6; --md-mk:#98a2b3; --md-quote:#2e7d4f; --md-img:#8a3ffc; --md-b:#b25e09; --md-cm:#98a2b3;
           --md-q:rgba(229,72,77,.22); --md-sug:rgba(245,165,36,.22); }
   @media (prefers-color-scheme: dark) {
     :root { --bg:#14171c; --panel:#1c2027; --line:#323844; --ink:#e6e9ef; --muted:#9aa3b2; --accent:#6a9bff;
-            --md-h:#7aa7ff; --md-mk:#6b7487; --md-quote:#6fcf97; --md-img:#b99bff; --md-b:#f0a35e; --md-cm:#6b7487;
+            --md-h:#7aa7ff; --md-h2:#4fd1c5; --md-h3:#b8a4ff; --md-mk:#6b7487; --md-quote:#6fcf97; --md-img:#b99bff; --md-b:#f0a35e; --md-cm:#6b7487;
             --md-q:rgba(229,72,77,.3); --md-sug:rgba(245,165,36,.25); }
   }
   * { box-sizing:border-box; }
@@ -61,6 +61,13 @@
   #editor::placeholder { color:var(--muted); }
   #hl .m-mk { color:var(--md-mk); }
   #hl .m-h { color:var(--md-h); }
+  #hl .m-h2 { color:var(--md-h2); }
+  #hl .m-h3 { color:var(--md-h3); }
+  #hl .m-i { color:var(--md-b); }
+  #hl .m-u { color:var(--md-b); text-decoration:underline; }
+  .fmt { display:flex; flex-wrap:wrap; gap:4px; align-items:center; padding:4px 10px; border-bottom:1px solid var(--line); }
+  .fmt button { padding:2px 9px; font-size:13px; }
+  .fmt .sep { margin:0 2px; }
   #hl .m-quote { color:var(--md-quote); }
   #hl .m-img { color:var(--md-img); }
   #hl .m-b { color:var(--md-b); }
@@ -123,10 +130,25 @@
   <section>
     <div class="bar"><span class="t" id="edTitle">교정 글</span>
       <span class="legend">이 쪽 글만 보입니다 ·
-        <i style="color:var(--md-h)">## 제목</i><i style="color:var(--md-quote)">&gt; 주</i><i style="color:var(--md-img)">![그림]</i><i style="background:var(--md-q)">[?]</i><i style="background:var(--md-sug)">AI 제안 있음</i></span>
+        <i style="color:var(--md-h)">## 대</i><i style="color:var(--md-h2)">### 중</i><i style="color:var(--md-h3)">#### 소</i><i style="color:var(--md-quote)">&gt; 주</i><i style="color:var(--md-img)">![그림]</i><i style="background:var(--md-q)">[?]</i><i style="background:var(--md-sug)">AI 제안 있음</i></span>
       <span class="grow"></span>
       <input id="findText" type="text" placeholder="찾기" size="10"><input id="replText" type="text" placeholder="바꿀 글" size="10">
       <button id="findNext">찾기</button><button id="replAll">모두 바꾸기</button>
+    </div>
+    <div class="fmt">
+      <button id="fB" title="굵게 (Ctrl+B) — 글을 고르고 누름"><b>굵게</b></button>
+      <button id="fI" title="기울임 (Ctrl+I)"><i>기울임</i></button>
+      <button id="fU" title="밑줄 (Ctrl+U)"><u>밑줄</u></button>
+      <span class="sep"></span>
+      <button id="fH1" title="커서가 있는 줄을 대주제(##)로">대주제</button>
+      <button id="fH2" title="커서가 있는 줄을 중주제(###)로">중주제</button>
+      <button id="fH3" title="커서가 있는 줄을 소주제(####)로">소주제</button>
+      <button id="fP" title="커서가 있는 줄을 본문으로 (제목·주 표시 지움)">본문</button>
+      <span class="sep"></span>
+      <button id="fNote" title="고른 글을 본문에서 빼서 그 문단 아래 '> 주:'로 옮김. 고르지 않으면 커서 줄을 주로 바꿈 (Alt+N)">각주</button>
+      <span class="sep"></span>
+      <button id="fUp" title="커서가 있는 문단(그림 줄 등)을 한 문단 위로 (Alt+↑)">문단 ▲</button>
+      <button id="fDown" title="커서가 있는 문단을 한 문단 아래로 (Alt+↓)">문단 ▼</button>
     </div>
     <div id="edwrap"><pre id="hl" aria-hidden="true"></pre><textarea id="editor" spellcheck="false"></textarea></div>
     <div id="sugPanel" hidden><div class="bar"><span class="t">AI 교정 제안</span><span id="sugInfo" style="color:var(--muted)"></span><span class="grow"></span><button id="acceptPage" title="이 쪽 제안을 모두 글에 반영">이 쪽 모두 수락</button><button id="rejectPage" title="이 쪽 제안을 모두 거절">이 쪽 모두 거절</button></div><div id="sugList"></div></div>
@@ -215,12 +237,14 @@ function hlInline(t) {
   return escH(t)
     .replace(/!\[([^\]]*)\]\(([^)]*)\)/g, '<span class="m-img">![<span class="m-alt">$1</span>]($2)</span>')
     .replace(/\*\*([^*]+)\*\*/g, '<span class="m-mk">**</span><span class="m-b">$1</span><span class="m-mk">**</span>')
+    .replace(/(^|[^*\w])\*(?!\s)([^*\n]+?)\*(?![*\w])/g, '$1<span class="m-mk">*</span><span class="m-i">$2</span><span class="m-mk">*</span>')
+    .replace(/&lt;u&gt;(.+?)&lt;\/u&gt;/g, '<span class="m-mk">&lt;u&gt;</span><span class="m-u">$1</span><span class="m-mk">&lt;/u&gt;</span>')
     .replace(/&lt;!--.*?--&gt;/g, m => '<span class="m-cm">' + m + "</span>")
     .replace(/\[\?\]/g, '<span class="m-q">[?]</span>');
 }
 function hlLine(line) {
   let m, out;
-  if ((m = /^(#{1,6})(\s.*|)$/.exec(line))) out = '<span class="m-mk">' + m[1] + '</span><span class="m-h">' + hlInline(m[2]) + "</span>";
+  if ((m = /^(#{1,6})(\s.*|)$/.exec(line))) out = '<span class="m-mk">' + m[1] + '</span><span class="' + (m[1].length >= 4 ? "m-h3" : m[1].length === 3 ? "m-h2" : "m-h") + '">' + hlInline(m[2]) + "</span>";
   else if ((m = /^(>\s?)(.*)$/.exec(line))) out = '<span class="m-quote"><span class="m-mk">' + escH(m[1]) + "</span>" + hlInline(m[2]) + "</span>";
   else if ((m = /^(\s*)([-*+]|\d+[.)])(\s.*)$/.exec(line))) out = escH(m[1]) + '<span class="m-mk">' + escH(m[2]) + "</span>" + hlInline(m[3]);
   else if (/^\s*(\*{3,}|-{3,}|_{3,})\s*$/.test(line)) out = '<span class="m-mk">' + escH(line) + "</span>";
@@ -399,6 +423,81 @@ function insertAtCaret(s) {
   const pos = at + s.length - 1;
   ed.setSelectionRange(pos, pos); ed.focus(); onEdited();
 }
+
+// ---- 서식·각주·문단 옮기기 ---------------------------------------------------
+function setText(v, a, b) {  // 글 칸 내용을 바꾸고 선택 위치를 지정. 바뀐 부분만 브라우저 편집 명령으로 넣어 Ctrl+Z 로 되돌릴 수 있게
+  const old = ed.value, top = ed.scrollTop;
+  let p = 0; while (p < old.length && p < v.length && old[p] === v[p]) p++;
+  let q = 0; while (q < old.length - p && q < v.length - p && old[old.length - 1 - q] === v[v.length - 1 - q]) q++;
+  ed.focus({ preventScroll: true }); ed.setSelectionRange(p, old.length - q);
+  let ok = false; try { ok = document.execCommand("insertText", false, v.slice(p, v.length - q)); } catch (e) {}
+  if (!ok || ed.value !== v) ed.value = v;  // 편집 명령이 안 되는 브라우저
+  ed.scrollTop = top; ed.setSelectionRange(a, b === undefined ? a : b); onEdited();
+}
+function wrapSel(pre, post) {  // 고른 글을 감싸거나, 이미 감싸져 있으면 풀기
+  if (ed.readOnly) return;
+  const v = ed.value; let a = ed.selectionStart, b = ed.selectionEnd;
+  if (a === b) { setStatus("먼저 글을 고르세요", true); return; }
+  while (a < b && /\s/.test(v[a])) a++; while (b > a && /\s/.test(v[b - 1])) b--;  // 앞뒤 빈칸은 밖에
+  const sel = v.slice(a, b);
+  if (sel.startsWith(pre) && sel.endsWith(post) && sel.length >= pre.length + post.length)
+    return setText(v.slice(0, a) + sel.slice(pre.length, sel.length - post.length) + v.slice(b), a, b - pre.length - post.length);
+  if (v.slice(a - pre.length, a) === pre && v.slice(b, b + post.length) === post)
+    return setText(v.slice(0, a - pre.length) + sel + v.slice(b + post.length), a - pre.length, b - pre.length);
+  setText(v.slice(0, a) + pre + sel + post + v.slice(b), a + pre.length, b + pre.length);
+}
+function lineAt(v, k) { const a = v.lastIndexOf("\n", k - 1) + 1; let b = v.indexOf("\n", k); if (b < 0) b = v.length; return [a, b]; }
+function setLinePrefix(prefix) {  // 커서 줄의 앞 표시(##, > 주: 등)를 바꾼다
+  if (ed.readOnly) return;
+  const v = ed.value, [a, b] = lineAt(v, ed.selectionStart);
+  const body = v.slice(a, b).replace(/^(#{1,6}\s+|>\s?(주\s*[:：]\s*)?)/, "");
+  setText(v.slice(0, a) + prefix + body + v.slice(b), a + prefix.length + body.length);
+}
+const NOTE_MARK = /^[\s▸▶►•●◆◇■□※*·∙]+/;  // 각주 앞 표시 기호
+function makeNote() {
+  if (ed.readOnly) return;
+  const v = ed.value; let a = ed.selectionStart, b = ed.selectionEnd;
+  if (a === b) {  // 고른 글이 없으면 커서 줄 전체를 주로 (이미 주면 본문으로 되돌림)
+    const [la, lb] = lineAt(v, a), line = v.slice(la, lb);
+    if (/^>\s?/.test(line)) return setLinePrefix("");
+    const body = line.replace(/^(#{1,6}\s+)/, "").replace(NOTE_MARK, "");
+    return setText(v.slice(0, la) + "> 주: " + body + v.slice(lb), la + 5 + body.length);
+  }
+  const note = v.slice(a, b).replace(/\s*\n\s*/g, " ").trim().replace(NOTE_MARK, "");
+  if (!note) return;
+  // 고른 글을 빼고 앞뒤 빈칸 정리
+  let left = v.slice(0, a).replace(/[ \t]+$/, ""), right = v.slice(b).replace(/^[ \t]+/, "");
+  const glue = left && right && !/\n$/.test(left) && !/^\n/.test(right) ? " " : "";
+  let rest = left + glue + right;
+  // 고른 글이 있던 문단의 끝(다음 빈 줄 앞)에 '> 주:' 문단을 넣는다
+  let at = rest.indexOf("\n\n", left.length); if (at < 0) at = rest.replace(/\n+$/, "").length;
+  rest = rest.slice(0, at) + "\n\n> 주: " + note + rest.slice(at);
+  rest = rest.replace(/\n{3,}/g, "\n\n");
+  const k = rest.indexOf("> 주: " + note);
+  setText(rest, k, k + 5 + note.length); setStatus("각주로 옮겼습니다");
+}
+function moveBlock(dir) {  // 커서가 있는 문단(빈 줄로 나뉜 덩어리)을 위·아래 문단과 자리 바꿈
+  if (ed.readOnly) return;
+  const blocks = ed.value.split(/\n\s*\n/), c = ed.selectionStart;
+  let pos = 0, i = 0;
+  for (; i < blocks.length; i++) { const end = pos + blocks[i].length; if (c <= end) break; pos = end + 2; }
+  const j = i + dir;
+  if (i >= blocks.length || j < 0 || j >= blocks.length) { setStatus(dir < 0 ? "이 쪽 맨 위입니다 (다른 쪽으로는 잘라내기·붙여넣기)" : "이 쪽 맨 아래입니다 (다른 쪽으로는 잘라내기·붙여넣기)", true); return; }
+  [blocks[i], blocks[j]] = [blocks[j], blocks[i]];
+  const v = blocks.join("\n\n"); let k = 0; for (let n = 0; n < j; n++) k += blocks[n].length + 2;
+  setText(v, k, k + blocks[j].length);
+}
+$("fB").onclick = () => wrapSel("**", "**");
+$("fI").onclick = () => wrapSel("*", "*");
+$("fU").onclick = () => wrapSel("<u>", "</u>");
+$("fH1").onclick = () => setLinePrefix("## ");
+$("fH2").onclick = () => setLinePrefix("### ");
+$("fH3").onclick = () => setLinePrefix("#### ");
+$("fP").onclick = () => setLinePrefix("");
+$("fNote").onclick = makeNote;
+$("fUp").onclick = () => moveBlock(-1);
+$("fDown").onclick = () => moveBlock(1);
+document.querySelectorAll(".fmt button").forEach(b => b.addEventListener("mousedown", e => e.preventDefault()));  // 눌러도 글 칸 선택 유지
 
 // ---- 저장 -------------------------------------------------------------
 function markDirty() { dirty = true; setStatus("수정됨…"); clearTimeout(saveTimer); saveTimer = setTimeout(save, 1500); }
@@ -580,6 +679,15 @@ async function loadSuggestions() {
 // ---- 단축키 ------------------------------------------------------------
 window.addEventListener("keydown", e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); dirty = true; save(); return; }
+  if ((e.ctrlKey || e.metaKey) && document.activeElement === ed && !e.shiftKey && !e.altKey) {
+    const k = e.key.toLowerCase();
+    if (k === "b") { e.preventDefault(); return $("fB").click(); }
+    if (k === "i") { e.preventDefault(); return $("fI").click(); }
+    if (k === "u") { e.preventDefault(); return $("fU").click(); }
+  }
+  if (e.altKey && document.activeElement === ed && e.key === "ArrowUp") { e.preventDefault(); return moveBlock(-1); }
+  if (e.altKey && document.activeElement === ed && e.key === "ArrowDown") { e.preventDefault(); return moveBlock(1); }
+  if (e.altKey && e.key.toLowerCase() === "n") { e.preventDefault(); return makeNote(); }
   if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); $("prev").click(); }
   else if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); $("next").click(); }
   else if (e.altKey && e.key.toLowerCase() === "l") { e.preventDefault(); $("nextLow").click(); }
