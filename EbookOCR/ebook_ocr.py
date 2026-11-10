@@ -196,6 +196,7 @@ class Para:
     note: bool = False  # 각주 (본문보다 작은 글자)
     open_end: bool = False  # 쪽 끝에서 문장이 끝나지 않음 (다음 쪽과 이어질 수 있음)
     cont_start: bool = False  # 쪽 첫 줄이 들여쓰기 없이 시작 (앞 쪽 문단의 이어짐일 수 있음)
+    cont: bool = False  # (merge=False 일 때) 앞 쪽 마지막 문단에서 이어지는 문단
 
 
 HANGUL = "\uac00-\ud7a3"
@@ -281,7 +282,9 @@ def page_paragraphs(p: Page, lh: float, pitch: float, book_margins: tuple[float,
     return paras
 
 
-def build_paragraphs(pages: list[Page]) -> list[Para]:
+def build_paragraphs(pages: list[Page], merge: bool = True) -> list[Para]:
+    """merge=True: 쪽을 넘어 이어지는 문단을 앞 문단에 붙인다 (AI용 최종본).
+    merge=False: 붙이지 않고 cont 표시만 한다 (교정용: 글이 늘 제 쪽에 있게, 내보낼 때 이어 붙임)."""
     lh, pitch = book_metrics(pages)
     ms = [m for m in map(page_margins, pages) if m is not None]
     book_margins = (float(np.median([m[0] for m in ms])), float(np.median([m[1] for m in ms]))) if ms else None
@@ -291,9 +294,12 @@ def build_paragraphs(pages: list[Page]) -> list[Para]:
         paras = page_paragraphs(p, lh, pitch, book_margins)
         first = next((x for x in paras if not x.note), None)
         if first is not None and last_text is not None and last_text.open_end and first.cont_start:
-            last_text.text = join_text(last_text.text, first.text)
-            last_text.open_end = first.open_end
-            paras.remove(first)
+            if merge:
+                last_text.text = join_text(last_text.text, first.text)
+                last_text.open_end = first.open_end
+                paras.remove(first)
+            else:
+                first.cont = True
         for x in paras:
             if not x.note:  # 본문 속 각주 표시(•) 지우기
                 x.text = re.sub(r"\s*[•∙]\s*(?=\S)", "", x.text).strip()
@@ -359,10 +365,12 @@ def fix_spacing(paras: list[Para]) -> None:
 def write_markdown(paras: list[Para], path: Path, title: str, page_marks: bool) -> None:
     lines = [f"# {title}", ""]
     last_page = None
+    cont_pages = {x.page for x in paras if x.cont}
     for para in paras:
         para.text = para.text.replace(SOFT, "")
         if page_marks and para.page != last_page:
-            lines += [f"<!-- p.{para.page} -->", ""]
+            # '이어짐': 이 쪽 첫 문단은 앞 쪽 마지막 문단의 이어짐 (내보낼 때 이어 붙임)
+            lines += [f"<!-- p.{para.page}{' 이어짐' if para.page in cont_pages else ''} -->", ""]
             last_page = para.page
         if para.heading:
             lines += [f"## {para.text}", ""]
@@ -481,8 +489,12 @@ def main(argv=None) -> int:
         fix_spacing(paras)
     md = out_dir / f"{title}.md"
     write_markdown(paras, md, title, args.page_marks)
-    # 교정 편집기(ebook_review.py)용: 같은 문단에 <!-- p.N --> 쪽 표시를 넣은 본. 위 최종본은 그대로 둔다.
-    write_markdown(paras, out_dir / f"{title}_교정용.md", title, True)
+    # 교정 편집기(ebook_review.py)용: <!-- p.N --> 쪽 표시를 넣은 본. 위 최종본은 그대로 둔다.
+    # 쪽을 넘는 문단은 붙이지 않고 제 쪽에 두며 '<!-- p.N 이어짐 -->' 으로 표시 (편집기가 쪽마다 보여 주므로)
+    paras_r = build_paragraphs(pages, merge=False)
+    if not args.no_spacing:
+        fix_spacing(paras_r)
+    write_markdown(paras_r, out_dir / f"{title}_교정용.md", title, True)
 
     n_pic = sum(len(p.pictures) for p in pages)
     chars = sum(len(x.text) for x in paras)

@@ -30,7 +30,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-PAGE_MARK = re.compile(r"^<!--\s*p\.(\d+)\s*-->\s*$")
+PAGE_MARK = re.compile(r"^<!--\s*p\.(\d+)(\s*이어짐)?\s*-->\s*$")  # 이어짐: 앞 쪽 마지막 문단과 이어 붙임
 FIGURE = re.compile(r"^!\[([^\]]*)\]\(([^)\s]+)\)\s*$")
 HEADING = re.compile(r"^(#{1,4})\s+(.*\S)\s*$")  # # 제목, ## 대주제, ### 중주제, #### 소주제
 # 글 속 서식 (겹쳐도 됨, 순서 상관없음): ***굵게+기울임***, **굵게**, *기울임*, <u>밑줄</u>
@@ -107,6 +107,7 @@ def parse_markdown(text: str, base: Path) -> Parsed:
     out = Parsed()
     page = 0
     first_h1 = True
+    join_next = False  # '<!-- p.N 이어짐 -->' 다음 첫 본문은 앞 쪽 마지막 본문 문단에 이어 붙인다
     for raw in text.replace("\r\n", "\n").replace(SOFT, "").split("\n"):
         line = raw.rstrip()
         if not line.strip():
@@ -114,6 +115,7 @@ def parse_markdown(text: str, base: Path) -> Parsed:
         m = PAGE_MARK.match(line.strip())
         if m:
             page = int(m.group(1))
+            join_next = bool(m.group(2))
             out.blocks.append(Block("page", page=page))
             continue
         if line.strip().startswith("<!--") and line.strip().endswith("-->"):
@@ -126,7 +128,7 @@ def parse_markdown(text: str, base: Path) -> Parsed:
             if not (base / src).is_file():
                 out.missing_file.append(src)
             out.blocks.append(Block("figure", alt, page=page, src=src))
-            continue
+            continue  # 그림은 이어 붙이기 대상이 아니므로 join_next 를 그대로 둔다 (그림 뒤 본문을 앞 문단에 붙임)
         m = HEADING.match(line.strip())
         if m:
             level = len(m.group(1))
@@ -135,11 +137,19 @@ def parse_markdown(text: str, base: Path) -> Parsed:
                 first_h1 = False
             else:
                 out.blocks.append(Block("heading", m.group(2), level=max(1, level - 1) if level > 1 else 1, page=page))
+            join_next = False  # 제목이 오면 이어지지 않음
             continue
         m = NOTE.match(line.strip())
         if m:
             out.blocks.append(Block("note", m.group(1).strip(), page=page))
             continue
+        if join_next:  # 앞 쪽 마지막 본문 문단 찾기 (사이의 쪽 표시·각주·그림은 건너뜀)
+            prev = next((b for b in reversed(out.blocks) if b.kind not in ("page", "note", "figure")), None)
+            join_next = False
+            if prev is not None and prev.kind == "para":
+                t = line.strip()
+                prev.text = prev.text[:-1] + t if re.search(r"[A-Za-z]-$", prev.text) and re.match(r"[a-z]", t) else f"{prev.text} {t}"
+                continue
         out.blocks.append(Block("para", line.strip(), page=page))
     return out
 
