@@ -78,6 +78,7 @@ EbookOCR/                  ← 전자책 OCR
   bookdir.py               책 폴더 위치: 책폴더.txt(PC별, git 제외)가 있으면 'books\\X' → 그 경로\\X. 결과 폴더 X_OCR (3_OCR_GPU.bat도 2026-11-10부터 같은 곳). 예전 판이 만든 X_OCR_GPU만 있으면(또는 그쪽에만 교정 중 파일) 그쪽
   설치_교정용.bat          OCR 없는 가벼운 설치(pillow, python-docx: requirements_edit.txt)
   책폴더_설정.bat          bookdir.py 실행 (경로 입력·확인)
+  make_sample.py / 샘플책_만들기.bat  교정기 시험용 3쪽 샘플(쪽 이미지·cache 줄 상자·교정용.md 일부러 넣은 잘못·제안 3건)
   설치.bat, 1_캡처점검.bat, 2_캡처.bat, 3_OCR.bat, 4_교정.bat, 5_내보내기.bat, 설치_GPU.bat, 3_OCR_GPU.bat
 ```
 
