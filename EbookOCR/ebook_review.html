@@ -238,7 +238,7 @@
 
 <dialog id="hfDlg" class="dlgwide">
   <h2>머리말·꼬리말 정리 — 지울 것을 고르세요</h2>
-  <div style="color:var(--muted);font-size:12px">각 쪽 맨 위·맨 아래 줄 중 여러 쪽에 반복되는 것(숫자는 무시)과 쪽 번호를 찾았습니다. 숫자가 바뀌어도 같은 것으로 지웁니다.</div>
+  <div style="color:var(--muted);font-size:12px">각 쪽 맨 위·맨 아래 줄 중 여러 쪽에 반복되는 것(숫자는 무시), 쪽 번호가 붙어 3쪽 이상 나오는 것(장마다 바뀌는 꼬리말), 쪽 번호를 찾았습니다. 예시를 보고 맞는 것만 남겨 두세요.</div>
   <div id="hfList" style="max-height:50vh;overflow:auto;margin:8px 0"></div>
   <div class="row"><button id="hfCancel">취소</button><button id="hfOk" class="on">고른 것 지우기</button></div>
 </dialog>
@@ -909,13 +909,17 @@ $("hfClean").onclick = async () => {
   const n = rowTextsAll.length, counts = new Map();
   rowTextsAll.forEach(rows => {
     const edge = rows.length >= 4 ? [rows[0], rows[1], rows[rows.length - 2], rows[rows.length - 1]] : rows;
+    const outer = new Set([rows[0], rows[rows.length - 1]].filter(Boolean).map(t => t.trim()));  // 맨 위·맨 아래 한 줄
     new Set(edge.map(t => t.trim()).filter(Boolean)).forEach(t => {
       const k = t.replace(/\d+/g, "#").replace(/\s+/g, "");
-      if (!counts.has(k)) counts.set(k, { k, sample: t, pages: 0 }); counts.get(k).pages++;
+      if (!counts.has(k)) counts.set(k, { k, sample: t, pages: 0, outer: 0 });
+      const c = counts.get(k); c.pages++; if (outer.has(t)) c.outer++;
     });
   });
   const limit = Math.max(3, Math.floor(0.2 * n));
-  hfCands = [...counts.values()].filter(c => c.pages >= limit && c.k.replace(/#/g, "").length >= 3)  // 글자 3자 미만(쪽 번호 등)은 아래 별도
+  // 쪽 번호가 붙은 짧은 줄(장마다 제목이 바뀌는 꼬리말)은 3쪽 이상, 그 밖의 반복 줄은 전체의 20% 이상
+  const footerLike = t => /^\d{1,4}\s*[|│ㅣ·\-–—]?\s*\S.{0,40}$|^.{0,40}\S\s*[|│ㅣ·\-–—]?\s*\d{1,4}$/.test(t);
+  hfCands = [...counts.values()].filter(c => c.k.replace(/#/g, "").length >= 3 && (c.pages >= limit || (c.outer >= 3 && footerLike(c.sample))))  // 글자 3자 미만(쪽 번호 등)은 아래 별도
     .map(c => ({ ...c, rx: hfRegex(c.sample) })).map(c => ({ ...c, hits: hfFind(c.rx) })).filter(c => c.hits.length)
     .sort((a, b) => b.hits.length - a.hits.length);
   const pn = /^[ \t]*[-–—·|]*[ \t]*\d{1,4}[ \t]*[-–—·|]*[ \t]*$/gm;  // 숫자뿐인 줄

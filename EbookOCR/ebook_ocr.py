@@ -176,7 +176,7 @@ def strip_headers(pages: list[Page], band: float) -> None:
     """머리말·꼬리말·쪽 번호를 뺀다. 가장자리 줄 = 이미지 위·아래 band 비율 안의 줄, 또는 글이 있는 영역의 맨 위·맨 아래 두 줄
     (캡처에 여백이 있어 꼬리말이 이미지 가장자리에서 떨어져 있는 책). 가장자리 줄 중
       · 숫자뿐인 줄(쪽 번호), 여러 쪽에 반복되는 줄(숫자는 무시하고 비교: '블로그 부업 131' / '… 133')은 뺀다.
-      · 쪽 번호가 붙은 짧은 줄('130 CHAPTER 3')은 본문보다 크지 않고, 본문과 줄 간격보다 넓게 떨어져 있을 때만 뺀다
+      · 쪽 번호가 붙은 짧은 줄('130 CHAPTER 3', '블로그 투잡/부업을 해야 하는 이유 43')은 제목 크기가 아니고 본문과 떨어져 있을 때만 뺀다
         (쪽 맨 위 '2 블로그 시작하기' 같은 번호 붙은 제목을 지우지 않게)."""
     hs = [r.h for p in pages for r in p.rows]
     lh = float(np.median(hs)) if hs else 20.0
@@ -210,7 +210,8 @@ def strip_headers(pages: list[Page], band: float) -> None:
             return False
         if PAGE_NO.match(r.text) or _norm_key(r.text) in repeated:
             return True
-        return bool(FOOTER.match(r.text)) and r.h <= 1.15 * lh and gap >= 1.2 * lh
+        # 제목(본문 높이 1.3배 초과, 문단 복원과 같은 기준)이 아니고 본문과 떨어져 있으면 꼬리말로 본다
+        return bool(FOOTER.match(r.text)) and r.h <= 1.3 * lh and gap >= 1.2 * lh
 
     for p in pages:
         p.rows = [r for r in p.rows if not drop(p, r)]
