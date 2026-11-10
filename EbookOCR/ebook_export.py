@@ -71,7 +71,14 @@ def ai_inline(text: str) -> str:
 
 
 def add_inline(p, text: str, size=None, color=None, italic=None):
-    """Word 문단에 서식 있는 글 넣기."""
+    """Word 문단에 서식 있는 글 넣기. <br> 은 문단 안 줄바꿈."""
+    parts = re.split(r"<br\s*/?>", text, flags=re.I)
+    if len(parts) > 1:
+        for k, part in enumerate(parts):
+            if k:
+                p.add_run().add_break()
+            add_inline(p, part.strip(), size, color, italic)
+        return p
     for t, f in inline_runs(text):
         r = p.add_run(t)
         r.bold = True if "b" in f else None

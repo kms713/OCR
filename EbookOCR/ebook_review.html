@@ -138,10 +138,10 @@
 <body>
 <header>
   <h1 id="title">전자책 OCR 교정</h1>
-  <button id="prev" title="이전 쪽 (Alt+←)">◀</button>
+  <button id="prev" title="이전 쪽 (PageUp, Alt+←)">◀</button>
   <input id="pageNo" type="number" min="1" value="1" title="쪽 번호">
   <span id="pageTotal">/ 0</span>
-  <button id="next" title="다음 쪽 (Alt+→)">▶</button>
+  <button id="next" title="다음 쪽 (PageDown, Alt+→)">▶</button>
   <span class="sep"></span>
   <button id="toggleRows" class="on" title="이미지 위에 OCR이 읽은 줄 표시">줄 상자</button>
   <button id="nextLow" title="신뢰도가 낮은 다음 줄로 이동 (Alt+L)">다음 의심 줄</button>
@@ -158,6 +158,7 @@
   <button id="zoomOut" title="축소 (Ctrl+휠)">－</button><button id="zoomText" title="글이 있는 영역을 칸 폭에 맞춤 (기본)">글 맞춤</button><button id="zoomFit" title="쪽 전체를 칸 폭에 맞춤">쪽 전체</button><button id="zoomIn" title="확대 (Ctrl+휠)">＋</button>
   <span class="grow"></span>
   <span id="status">불러오는 중…</span>
+  <button id="hfClean" title="책 전체에서 반복되는 머리말·꼬리말·쪽 번호(예: '130 CHAPTER 3', '블로그 부업 131')를 찾아 골라서 지움">머리말·꼬리말 정리</button>
   <button id="checklist" title="내보내기 전에 남은 일 점검: 미확인 쪽, [?], 설명 없는 그림, 남은 제안, 표 문법, 빠진 줄">점검표</button>
   <button id="saveNow" title="바로 저장 (Ctrl+S)">저장</button>
 </header>
@@ -233,6 +234,13 @@
   <h2>내보내기 전 점검표</h2>
   <div id="chkBody" class="chk">계산 중…</div>
   <div class="row"><button id="chkClose">닫기</button></div>
+</dialog>
+
+<dialog id="hfDlg" class="dlgwide">
+  <h2>머리말·꼬리말 정리 — 지울 것을 고르세요</h2>
+  <div style="color:var(--muted);font-size:12px">각 쪽 맨 위·맨 아래 줄 중 여러 쪽에 반복되는 것(숫자는 무시)과 쪽 번호를 찾았습니다. 숫자가 바뀌어도 같은 것으로 지웁니다.</div>
+  <div id="hfList" style="max-height:50vh;overflow:auto;margin:8px 0"></div>
+  <div class="row"><button id="hfCancel">취소</button><button id="hfOk" class="on">고른 것 지우기</button></div>
 </dialog>
 
 <dialog id="replDlg" class="dlgwide">
@@ -880,6 +888,58 @@ $("replOk").onclick = () => {
   setStatus(pick.length + "곳을 바꿨습니다 (쪽 넘어 되돌리기는 안 되니 필요하면 다시 바꾸세요)");
 };
 
+// ---- 머리말·꼬리말 정리 (이미 OCR 한 책) ----------------------------------------------
+let hfCands = [];
+function hfRegex(sample) {  // 예: '130 C H A P T E R 3' → 숫자는 아무 숫자, 글자 사이 빈칸은 있어도 없어도
+  const t = sample.replace(/\s+/g, ""), parts = [];
+  for (let i = 0; i < t.length;) {
+    if (/\d/.test(t[i])) { while (i < t.length && /\d/.test(t[i])) i++; parts.push("\\d{1,4}"); }
+    else { parts.push(t[i].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")); i++; }
+  }
+  return new RegExp(parts.join("[ \\t]*"), "g");
+}
+function hfFind(rx) {  // 쪽 표시 줄 밖에서 찾은 [시작, 끝] 목록
+  const ms = markers(), out = []; let m; rx.lastIndex = 0;
+  while ((m = rx.exec(full))) { const a = m.index, b = a + m[0].length; if (!ms.some(k => a < k.end && b > k.pos)) out.push([a, b]); if (!m[0].length) rx.lastIndex++; }
+  return out;
+}
+$("hfClean").onclick = async () => {
+  syncFull();
+  if (!rowTextsAll) { try { rowTextsAll = await api("/api/rowtexts"); } catch (e) { rowTextsAll = []; } }
+  const n = rowTextsAll.length, counts = new Map();
+  rowTextsAll.forEach(rows => {
+    const edge = rows.length >= 4 ? [rows[0], rows[1], rows[rows.length - 2], rows[rows.length - 1]] : rows;
+    new Set(edge.map(t => t.trim()).filter(Boolean)).forEach(t => {
+      const k = t.replace(/\d+/g, "#").replace(/\s+/g, "");
+      if (!counts.has(k)) counts.set(k, { k, sample: t, pages: 0 }); counts.get(k).pages++;
+    });
+  });
+  const limit = Math.max(3, Math.floor(0.2 * n));
+  hfCands = [...counts.values()].filter(c => c.pages >= limit && c.k.replace(/#/g, "").length >= 3)  // 글자 3자 미만(쪽 번호 등)은 아래 별도
+    .map(c => ({ ...c, rx: hfRegex(c.sample) })).map(c => ({ ...c, hits: hfFind(c.rx) })).filter(c => c.hits.length)
+    .sort((a, b) => b.hits.length - a.hits.length);
+  const pn = /^[ \t]*[-–—·|]*[ \t]*\d{1,4}[ \t]*[-–—·|]*[ \t]*$/gm;  // 숫자뿐인 줄
+  const pnHits = hfFind(pn);
+  if (pnHits.length) hfCands.push({ sample: "숫자뿐인 줄 (쪽 번호)", pages: 0, rx: pn, hits: pnHits });
+  const esc = x => x.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  $("hfList").innerHTML = hfCands.length ? hfCands.map((c, i) => '<label style="display:block;padding:4px;border-bottom:1px solid var(--line)"><input type="checkbox" data-i="' + i + '" checked> <b>' +
+      esc(c.sample) + "</b> — 지금 글에 " + c.hits.length + "곳" + (c.pages ? " (OCR " + c.pages + "쪽에 반복)" : "") + '<br><span style="color:var(--muted);font-size:12px">예: …' +
+      esc(full.slice(Math.max(0, c.hits[0][0] - 20), c.hits[0][0])) + "<u>" + esc(full.slice(c.hits[0][0], c.hits[0][1])) + "</u>" + esc(full.slice(c.hits[0][1], c.hits[0][1] + 20)).replace(/\n/g, " ⏎ ") + "…</span></label>").join("")
+    : '<div style="padding:8px">반복되는 머리말·꼬리말을 찾지 못했습니다.</div>';
+  $("hfOk").disabled = !hfCands.length; $("hfDlg").showModal();
+};
+$("hfCancel").onclick = () => $("hfDlg").close();
+$("hfOk").onclick = () => {
+  const pick = [...$("hfList").querySelectorAll("input")].filter(c => c.checked).map(c => hfCands[+c.dataset.i]);
+  $("hfDlg").close(); if (!pick.length) return;
+  const spans = pick.flatMap(c => hfFind(c.rx)).sort((a, b) => b[0] - a[0]);
+  let last = Infinity, n = 0;
+  for (const [a, b] of spans) { if (b > last) continue; full = full.slice(0, a) + full.slice(b); last = a; n++; }
+  full = full.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+  loadPageText(page, true); renderSuggestions(); markDirty(); scheduleMissing();
+  setStatus("머리말·꼬리말 " + n + "곳을 지웠습니다 (되돌리려면 편집기를 닫고 .md.bak 을 쓰세요)");
+};
+
 // ---- 저장 -------------------------------------------------------------
 function markDirty() { dirty = true; setStatus("수정됨…"); clearTimeout(saveTimer); saveTimer = setTimeout(save, 1500); }
 function onEdited() { syncFull(); highlight(); markDirty(); }
@@ -1121,6 +1181,14 @@ async function loadSuggestions() {
 
 // ---- 단축키 ------------------------------------------------------------
 window.addEventListener("keydown", e => {
+  if ((e.key === "PageDown" || e.key === "PageUp") && !e.ctrlKey && !e.altKey && !e.shiftKey && !document.querySelector("dialog[open]")) {
+    e.preventDefault(); return $(e.key === "PageDown" ? "next" : "prev").click();  // 쪽 넘기기
+  }
+  if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey && document.activeElement === ed && !ed.readOnly) {
+    e.preventDefault();  // Shift+Enter: 줄바꿈 표시 <br> (문단 안에서 줄을 바꿈. 표 칸 안에서도)
+    if (!document.execCommand("insertText", false, "<br>")) { const a = ed.selectionStart; ed.setRangeText("<br>", a, ed.selectionEnd, "end"); onEdited(); }
+    return;
+  }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); dirty = true; save(); return; }
   if ((e.ctrlKey || e.metaKey) && document.activeElement === ed && !e.shiftKey && !e.altKey) {
     const k = e.key.toLowerCase();

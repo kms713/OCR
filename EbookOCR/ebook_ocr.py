@@ -173,19 +173,47 @@ def _norm_key(text: str) -> str:
 
 
 def strip_headers(pages: list[Page], band: float) -> None:
-    """위·아래 가장자리(band 비율) 줄 중 쪽 번호, 쪽 번호가 붙은 짧은 줄, 여러 쪽에 반복되는 줄을 뺀다."""
-    def edge(p: Page, r: Row) -> bool:
-        return r.box[3] <= p.height * band or r.box[1] >= p.height * (1 - band)
+    """머리말·꼬리말·쪽 번호를 뺀다. 가장자리 줄 = 이미지 위·아래 band 비율 안의 줄, 또는 글이 있는 영역의 맨 위·맨 아래 두 줄
+    (캡처에 여백이 있어 꼬리말이 이미지 가장자리에서 떨어져 있는 책). 가장자리 줄 중
+      · 숫자뿐인 줄(쪽 번호), 여러 쪽에 반복되는 줄(숫자는 무시하고 비교: '블로그 부업 131' / '… 133')은 뺀다.
+      · 쪽 번호가 붙은 짧은 줄('130 CHAPTER 3')은 본문보다 크지 않고, 본문과 줄 간격보다 넓게 떨어져 있을 때만 뺀다
+        (쪽 맨 위 '2 블로그 시작하기' 같은 번호 붙은 제목을 지우지 않게)."""
+    hs = [r.h for p in pages for r in p.rows]
+    lh = float(np.median(hs)) if hs else 20.0
 
+    def edges(p: Page) -> dict[int, float]:
+        """가장자리 줄 → 본문과의 간격 (id(row) → gap)."""
+        rows = sorted(p.rows, key=lambda r: r.box[1])
+        out: dict[int, float] = {}
+        for i, r in enumerate(rows):
+            in_band = r.box[3] <= p.height * band or r.box[1] >= p.height * (1 - band)
+            top = i < 2 and len(rows) >= 4
+            bottom = i >= len(rows) - 2 and len(rows) >= 4
+            if not (in_band or top or bottom):
+                continue
+            gap_up = r.box[1] - rows[i - 1].box[3] if i > 0 else 1e9
+            gap_down = rows[i + 1].box[1] - r.box[3] if i + 1 < len(rows) else 1e9
+            out[id(r)] = (1e9 if in_band else (gap_down if top and not bottom else gap_up if bottom and not top else max(gap_up, gap_down)))
+        return out
+
+    edge_of = {p.no: edges(p) for p in pages}
     counts: dict[str, int] = {}
     for p in pages:
-        for k in {_norm_key(r.text) for r in p.rows if edge(p, r)}:
+        for k in {_norm_key(r.text) for r in p.rows if id(r) in edge_of[p.no]}:
             counts[k] = counts.get(k, 0) + 1
     limit = max(3, int(0.2 * len(pages)))
-    repeated = {k for k, c in counts.items() if c >= limit}
+    repeated = {k for k, c in counts.items() if c >= limit and len(k) >= 2}
+
+    def drop(p: Page, r: Row) -> bool:
+        gap = edge_of[p.no].get(id(r))
+        if gap is None:
+            return False
+        if PAGE_NO.match(r.text) or _norm_key(r.text) in repeated:
+            return True
+        return bool(FOOTER.match(r.text)) and r.h <= 1.15 * lh and gap >= 1.2 * lh
+
     for p in pages:
-        p.rows = [r for r in p.rows if not (edge(p, r) and (
-            PAGE_NO.match(r.text) or FOOTER.match(r.text) or _norm_key(r.text) in repeated))]
+        p.rows = [r for r in p.rows if not drop(p, r)]
 
 
 # ----------------------------------------------------------------------------
