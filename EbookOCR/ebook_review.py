@@ -213,7 +213,7 @@ def make_handler(book: Book):
                 return self._json({"error": "없음"}, 404)
             ctype = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
                      ".bmp": "image/bmp", ".webp": "image/webp"}.get(path.suffix.lower(), "application/octet-stream")
-            self._send(200, path.read_bytes(), ctype, cache=True)
+            self._send(200, path.read_bytes(), ctype)  # 캐시 안 함: 다시 캡처·샘플 재생성 뒤 예전 그림이 보이지 않게 (내 PC 안이라 느리지 않음)
 
         # -- GET ----------------------------------------------------------
         def do_GET(self):
