@@ -164,7 +164,7 @@
       <button id="fDown" title="커서가 있는 문단을 한 문단 아래로 (Alt+↓)">문단 ▼</button>
     </div>
     <div id="edwrap"><pre id="hl" aria-hidden="true"></pre><textarea id="editor" spellcheck="false"></textarea></div>
-    <div id="sugPanel" hidden><div class="bar"><span class="t">AI 교정 제안</span><span id="sugInfo" style="color:var(--muted)"></span><span class="grow"></span><button id="acceptPage" title="이 쪽 제안을 모두 글에 반영">이 쪽 모두 수락</button><button id="rejectPage" title="이 쪽 제안을 모두 거절">이 쪽 모두 거절</button></div><div id="sugList"></div></div>
+    <div id="sugPanel" hidden><div class="bar"><span class="t">AI 교정 제안</span><span id="sugInfo" style="color:var(--muted)"></span><span class="grow"></span><button id="acceptPage" title="이 쪽 제안을 모두 글에 반영">이 쪽 모두 수락</button><button id="rejectPage" title="이 쪽 제안을 모두 거절">이 쪽 모두 거절</button><button id="acceptAll" title="책 전체의 남은 제안을 한 번에 글에 반영">책 전체 모두 수락…</button></div><div id="sugList"></div></div>
   </section>
 </main>
 <div id="mirror"></div>
@@ -190,6 +190,14 @@
   <div style="color:var(--muted);font-size:12px">한 줄이 한 행, | 로 칸을 나눕니다. 둘째 줄 |---|---| 은 머리 행 구분선입니다. 칸 안 줄바꿈은 &lt;br&gt;, 칸 안의 | 는 \| 로 씁니다.</div>
   <label style="display:block;margin-top:6px"><input type="checkbox" id="tblRemove" checked> <span id="tblRemoveInfo"></span></label>
   <div class="row"><button id="tblCancel">취소</button><button id="tblOk" class="on">넣기</button></div>
+</dialog>
+
+<dialog id="bulkDlg">
+  <h2>책 전체 제안 모두 수락</h2>
+  <div id="bulkInfo"></div>
+  <label style="display:block;margin-top:8px"><input type="checkbox" id="bulkSkipFlag" checked> ⚠ 표시(숫자·영문이 바뀐 제안)는 빼고 수락 — 따로 확인하세요</label>
+  <div style="color:var(--muted);font-size:12px;margin-top:6px">수락 전 교정 글을 '책이름_교정.md.일괄수락전' 으로 한 벌 남깁니다. 되돌리려면 편집기를 닫고 그 파일 이름을 '책이름_교정.md' 로 바꾸세요.</div>
+  <div class="row"><button id="bulkCancel">취소</button><button id="bulkOk" class="on">모두 수락</button></div>
 </dialog>
 
 <dialog id="figListDlg">
@@ -848,6 +856,33 @@ async function resolvePage(accept) {
   setStatus("이 쪽 제안 " + n + "건을 " + (accept ? "반영했습니다" : "거절했습니다"));
 }
 $("acceptPage").onclick = () => resolvePage(true);
+function bulkTargets(skipFlag) { return [...sugMap.values()].filter(s => !(skipFlag && s.flags.length)); }
+function bulkInfo() {
+  const all = sugMap.size, flagged = [...sugMap.values()].filter(s => s.flags.length).length, n = bulkTargets($("bulkSkipFlag").checked).length;
+  $("bulkInfo").textContent = "남은 제안 " + all + "건 (⚠ " + flagged + "건) → " + n + "건을 수락합니다. 문단마다 고친 곳 전부가 들어갑니다.";
+  $("bulkOk").disabled = !n;
+}
+$("acceptAll").onclick = () => { bulkInfo(); $("bulkDlg").showModal(); };
+$("bulkSkipFlag").onchange = bulkInfo;
+$("bulkCancel").onclick = () => $("bulkDlg").close();
+$("bulkOk").onclick = async () => {
+  $("bulkDlg").close();
+  const want = new Map(bulkTargets($("bulkSkipFlag").checked).map(s => [s.orig, s.sug]));
+  try { await api("/api/backup", { method: "POST" }); } catch (e) { setStatus("백업 실패라 멈췄습니다: " + e.message, true); return; }
+  syncFull();
+  const done = new Set();
+  full = full.split("\n").map(l => { const t = l.trim(); if (!want.has(t)) return l; done.add(t); return l.replace(t, want.get(t)); }).join("\n");
+  loadPageText(page, true); dirty = true; await save();
+  if (done.size) {
+    try { await api("/api/suggest/status-many", { method: "POST", headers: { "Content-Type": "application/json" },
+                 body: JSON.stringify({ items: [...done].map(o => ({ orig: o, status: "accepted" })) }) }); }
+    catch (e) { setStatus("글은 고쳤지만 제안 상태 저장 실패: " + e.message, true); }
+    done.forEach(o => sugMap.delete(o));
+  }
+  renderSuggestions();
+  const miss = want.size - done.size;
+  setStatus("제안 " + done.size + "건을 반영했습니다" + (miss ? " · 원문이 이미 바뀌어 못 넣은 " + miss + "건은 남겨 둠" : ""));
+};
 $("rejectPage").onclick = () => resolvePage(false);
 $("nextSug").onclick = () => {
   const pages = sugPages();

@@ -137,13 +137,18 @@ class Book:
                 for v in self._load_suggest()["items"].values() if v.get("status", "new") == "new"]
 
     def set_suggest_status(self, orig: str, status: str) -> None:
-        if status not in ("accepted", "rejected"):
+        self.set_suggest_status_many([(orig, status)])
+
+    def set_suggest_status_many(self, pairs: list[tuple[str, str]]) -> None:
+        """여러 제안의 상태를 한 번에 (책 전체 일괄 수락용)."""
+        if any(st not in ("accepted", "rejected") for _, st in pairs):
             raise ValueError("잘못된 상태")
+        want = dict(pairs)
         with self.lock:
             d = self._load_suggest()
             for v in d["items"].values():
-                if v["orig"] == orig:
-                    v["status"] = status
+                if v["orig"] in want:
+                    v["status"] = want[v["orig"]]
             tmp = self.suggest.with_suffix(".json.tmp")
             tmp.write_bytes(json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8"))
             tmp.replace(self.suggest)
@@ -268,6 +273,14 @@ def make_handler(book: Book):
                     req = json.loads(self._body().decode("utf-8"))
                     rel = book.crop(int(req["page"]), [float(v) for v in req["box"]])
                     return self._json({"path": rel})
+                if urlparse(self.path).path == "/api/suggest/status-many":
+                    req = json.loads(self._body().decode("utf-8"))
+                    book.set_suggest_status_many([(str(x["orig"]), str(x["status"])) for x in req["items"]])
+                    return self._json({"ok": True})
+                if urlparse(self.path).path == "/api/backup":  # 일괄 수락 전 교정 글 한 벌 (덮어씀)
+                    if book.work.is_file():
+                        shutil.copyfile(book.work, book.work.with_name(book.work.name + ".일괄수락전"))
+                    return self._json({"ok": True, "name": book.work.name + ".일괄수락전"})
                 if urlparse(self.path).path == "/api/suggest/status":
                     req = json.loads(self._body().decode("utf-8"))
                     book.set_suggest_status(str(req["orig"]), str(req["status"]))
