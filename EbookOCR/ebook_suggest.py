@@ -471,7 +471,7 @@ def main(argv=None) -> int:
     ap.add_argument("--temperature", type=float, default=None, help="온도 (기본: 보내지 않음 = 모델 기본값)")
     ap.add_argument("--no-proxy", action="store_true", help="Windows 인터넷 옵션의 프록시를 거치지 않음")
     ap.add_argument("--check", action="store_true", help="연결만 점검 (짧은 글 한 번 호출)")
-    ap.add_argument("--rpm", type=float, default=15, help="분당 최대 호출 수 (기본 15)")
+    ap.add_argument("--rpm", type=float, default=None, help="분당 최대 호출 수 (기본: gemini 15, nvidia 30 — NVIDIA 무료 한도 분당 40 아래로)")
     ap.add_argument("--chunk-chars", type=int, default=4000, help="한 번에 보낼 글자 수 (기본 4000)")
     ap.add_argument("--max-change", type=float, default=0.15, help="이보다 많이 바뀐 제안은 버림 (기본 0.15)")
     ap.add_argument("--limit", type=int, default=0, help="이번에 보낼 덩어리 수 상한 (0 = 끝까지)")
@@ -480,6 +480,8 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if args.thinking == "none":  # PowerShell 은 빈 "" 를 넘기지 않으므로 none 으로도 받는다
         args.thinking = ""
+    if args.rpm is None:
+        args.rpm = {"gemini": 15, "nvidia": 30}.get(args.service, 60)
     if args.service == "gemini":
         args.model = args.model or os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)
     else:
