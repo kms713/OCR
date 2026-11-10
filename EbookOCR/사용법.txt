@@ -184,3 +184,13 @@ LD플레이어로 연 전자책을 한 쪽씩 넘기며 캡처하고, 글자만 
     예: 00_앞부분.md, 01_1장 블로그 시작.md, 02_2장 수익화.md … 각 파일 맨 위에 책 제목이 있습니다.
   · 더 잘게 나누려면: ... ebook_export.py books\책이름 --split-level 2   (중주제 ### 까지)  /  나누지 않으려면 --split-level 0
   · 나누는 기준은 편집기에서 정한 제목 단계(대주제·중주제·소주제 버튼)입니다. Word 완성본은 나누지 않습니다.
+
+[AI 교정 제안 - NVIDIA build 등 다른 서비스]
+  · 키를 이 폴더에 nvidia_key.txt (키 한 줄)로 저장합니다. (git 에 올라가지 않습니다)
+  · 쓸 수 있는 모델 보기:   .venv\Scripts\python.exe ebook_suggest.py --service nvidia --list-models
+    이름으로 거르기:        ... --service nvidia --list-models qwen
+  · 연결 점검:              ... --service nvidia --check            (모델 지정: --model 이름)
+  · 한 덩어리만 시험:       ... ebook_suggest.py books\책이름 --service nvidia --model 이름 --limit 1 --redo
+  · 책 전체:                ... ebook_suggest.py books\책이름 --service nvidia --model 이름
+  · 내 PC 의 Ollama:        ... --service openai --base-url http://localhost:11434/v1 --model 모델이름
+  · 제안 저장·편집기 표시·수락 방법은 Gemini 와 같습니다. 한국어 실력은 모델마다 다르니 한 덩어리로 먼저 비교하세요.

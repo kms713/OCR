@@ -41,6 +41,13 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 DEFAULT_MODEL = "gemini-3.5-flash-lite"  # 3.8-flash 는 2026-11-07 시험에서 "hello" 한 마디에 54초·503 혼잡
 API_BASE = os.environ.get("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
+# OpenAI 형식(chat/completions) 서비스. --service nvidia 는 NVIDIA build, openai 는 --base-url 로 지정 (예: Ollama http://localhost:11434/v1)
+SERVICES = {
+    "nvidia": {"base": os.environ.get("NVIDIA_API_BASE", "https://integrate.api.nvidia.com/v1"), "key_file": "nvidia_key.txt",
+               "key_env": "NVIDIA_API_KEY", "model": "meta/llama-3.3-70b-instruct"},
+    "openai": {"base": os.environ.get("OPENAI_API_BASE", "http://localhost:11434/v1"), "key_file": "openai_key.txt",
+               "key_env": "OPENAI_API_KEY", "model": ""},
+}
 SOFT = "⁠"
 PAGE_MARK = re.compile(r"^<!--.*-->$")
 FIGURE = re.compile(r"^!\[")
@@ -217,9 +224,91 @@ def call_raw(key: str, model: str, text: str, thinking: str = "", timeout: int =
     raise RuntimeError("API 호출이 계속 실패했습니다")
 
 
+def call_raw_oai(base: str, key: str, model: str, text: str, timeout: int = 90, max_tokens: int = 8192,
+                 temperature: float | None = None, no_proxy: bool = False, show: bool = True) -> tuple[str, str, dict]:
+    """OpenAI 형식 chat/completions (stream). 끝난 이유는 Gemini 와 같은 이름으로 바꿔 돌려준다 (length → MAX_TOKENS)."""
+    body = {"model": model, "messages": [{"role": "user", "content": text}], "max_tokens": max_tokens, "stream": True,
+            "temperature": 0.2 if temperature is None else temperature}  # 교정은 낮은 온도가 안전 (Gemini 3 와 달리 루프 문제 없음)
+    url = base.rstrip("/") + "/chat/completions"
+    opener = make_opener(no_proxy)
+    for attempt in range(5):
+        t0 = time.monotonic()
+        req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), method="POST",
+                                     headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}",
+                                              "Accept": "text/event-stream"})
+        try:
+            parts, finish, usage, first = [], "", {}, None
+            with opener.open(req, timeout=timeout) as r:
+                for raw in r:
+                    line = raw.decode("utf-8", "replace").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        ev = json.loads(data)
+                    except ValueError:
+                        continue
+                    if "error" in ev:
+                        raise RuntimeError(f"API 오류: {json.dumps(ev['error'], ensure_ascii=False)[:300]}")
+                    usage = ev.get("usage") or usage
+                    for c in ev.get("choices", [])[:1]:
+                        t = (c.get("delta") or {}).get("content") or ""
+                        if t:
+                            parts.append(t)
+                            if first is None:
+                                first = time.monotonic() - t0
+                        finish = c.get("finish_reason") or finish
+                    if show:
+                        print(f"\r    받는 중: {sum(len(x) for x in parts)}자 ({time.monotonic() - t0:.0f}초)" + " " * 40, end="", flush=True)
+            finish = {"length": "MAX_TOKENS", "content_filter": "SAFETY", "stop": "STOP"}.get(finish, finish.upper())
+            return "".join(parts), finish, dict(promptTokenCount=usage.get("prompt_tokens", "?"),
+                                                candidatesTokenCount=usage.get("completion_tokens", "?"),
+                                                _first_sec=first, _total_sec=time.monotonic() - t0)
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")
+            if e.code in (401, 403):
+                raise RuntimeError(f"키가 맞지 않거나 이 모델을 쓸 권한이 없습니다 ({e.code}): {detail[:300]}")
+            if e.code == 404:
+                raise RuntimeError(f"모델 '{model}' 을 찾지 못했습니다. --list-models 로 쓸 수 있는 이름을 확인하세요.\n  {detail[:200]}")
+            if e.code == 429:
+                if re.search(r"per day|daily|quota|credit", detail, re.I):
+                    raise QuotaDaily(detail[:300])
+                wait = 20 * (attempt + 1)
+                print(f"\n  호출 한도 초과 — {wait}초 기다립니다")
+                time.sleep(wait)
+                continue
+            if e.code in (500, 502, 503, 504):
+                wait = 10 * (attempt + 1)
+                print(f"\n  서버 혼잡·일시 오류 ({e.code}) — {wait}초 뒤 다시 시도합니다 ({attempt + 1}/5)", flush=True)
+                if attempt == 4:
+                    raise RuntimeError(f"서버가 계속 바쁩니다 ({e.code}). 잠시 뒤 다시 하거나 --model 로 다른 모델을 쓰세요.")
+                time.sleep(wait)
+                continue
+            raise RuntimeError(f"API 오류 {e.code}: {detail[:300]}")
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            why = getattr(e, "reason", e)
+            print(f"\n  응답 실패 ({time.monotonic() - t0:.0f}초 후): {why} — 다시 시도합니다 ({attempt + 1}/5)", flush=True)
+            if attempt == 4:
+                raise RuntimeError(f"연결 실패: {why}")
+            time.sleep(5 * (attempt + 1))
+    raise RuntimeError("API 호출이 계속 실패했습니다")
+
+
+def ask_model(args, key: str, text: str, max_tokens: int, timeout: int, show: bool = True) -> tuple[str, str, dict]:
+    if args.service == "gemini":
+        return call_raw(key, args.model, text, args.thinking, timeout, max_tokens, args.temperature, args.no_proxy, show)
+    return call_raw_oai(args.base_url, key, args.model, text, timeout, max_tokens, args.temperature, args.no_proxy, show)
+
+
 def call_gemini(key: str, model: str, text: str, thinking: str = "", timeout: int = 90, max_tokens: int = 8192,
-                temperature: float | None = None, no_proxy: bool = False) -> list[dict]:
-    txt, finish, _ = call_raw(key, model, PROMPT + text, thinking, timeout, max_tokens, temperature, no_proxy)
+                temperature: float | None = None, no_proxy: bool = False, args=None) -> list[dict]:
+    if args is not None:
+        txt, finish, _ = ask_model(args, key, PROMPT + text, max_tokens, timeout)
+    else:
+        txt, finish, _ = call_raw(key, model, PROMPT + text, thinking, timeout, max_tokens, temperature, no_proxy)
+    txt = re.sub(r"<think>.*?</think>", "", txt, flags=re.S)  # 생각 과정을 글로 내놓는 모델 (DeepSeek-R1 등)
     if finish == "MAX_TOKENS":
         raise BadReply("답이 출력 한도에서 잘렸습니다 (같은 말 되풀이 가능성). --chunk-chars 를 줄이거나 --max-tokens 를 늘리세요.")
     if finish.startswith("BLOCKED") or finish in ("SAFETY", "RECITATION", "PROHIBITED_CONTENT", "OTHER"):
@@ -253,10 +342,10 @@ def run_check(key: str, args) -> int:
     px = {k: v for k, v in urllib.request.getproxies().items() if k in ("http", "https")}
     print("[점검] 파이썬이 쓰는 프록시:", px or "없음",
           "(--no-proxy 사용)" if args.no_proxy else "")
-    print(f"[점검] 주소 {API_BASE}  모델 {args.model}  사고 수준 {args.thinking or '보내지 않음'}")
+    base = API_BASE if args.service == "gemini" else args.base_url
+    print(f"[점검] 서비스 {args.service}  주소 {base}  모델 {args.model}" + (f"  사고 수준 {args.thinking or '보내지 않음'}" if args.service == "gemini" else ""))
     try:
-        txt, finish, u = call_raw(key, args.model, 'JSON 으로만 답하라: {"ok": true}', args.thinking,
-                                  min(args.timeout, 60), 256, args.temperature, args.no_proxy)
+        txt, finish, u = ask_model(args, key, 'JSON 으로만 답하라: {"ok": true}', 256, min(args.timeout, 60))
     except (RuntimeError, QuotaDaily) as e:
         print(f"\n[점검 실패] {e}")
         return 1
@@ -268,7 +357,39 @@ def run_check(key: str, args) -> int:
     return 0 if txt.strip() else 1
 
 
-def load_key() -> str | None:
+def list_models(args, key: str) -> int:
+    """이 키로 쓸 수 있는 모델 이름 목록 (--model 에 넣을 이름)."""
+    if args.service == "gemini":
+        url, hdr = f"{API_BASE}/models?pageSize=1000", {"x-goog-api-key": key}
+    else:
+        url, hdr = args.base_url.rstrip("/") + "/models", {"Authorization": f"Bearer {key}"}
+    try:
+        with make_opener(args.no_proxy).open(urllib.request.Request(url, headers=hdr), timeout=60) as r:
+            d = json.loads(r.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        print(f"[오류] 모델 목록을 받지 못했습니다: {getattr(e, 'reason', e)}")
+        return 1
+    if args.service == "gemini":
+        names = [m["name"].split("/", 1)[-1] for m in d.get("models", []) if "generateContent" in m.get("supportedGenerationMethods", [])]
+    else:
+        names = [m.get("id", "") for m in d.get("data", [])]
+    flt = (args.model_filter or "").lower()
+    names = sorted(n for n in names if n and flt in n.lower())
+    print(f"{args.service} 모델 {len(names)}개" + (f" ('{flt}' 포함)" if flt else "") + ":")
+    for n in names:
+        print("  " + n)
+    return 0
+
+
+def load_key(service: str = "gemini") -> str | None:
+    if service != "gemini":
+        cfg = SERVICES[service]
+        k = os.environ.get(cfg["key_env"], "").strip()
+        f = HERE / cfg["key_file"]
+        if not k and f.is_file():
+            lines = f.read_bytes().decode("utf-8-sig").strip().splitlines()
+            k = lines[0].strip() if lines else ""
+        return k or ("none" if service == "openai" else None)  # Ollama 등 내 PC 서비스는 키가 없어도 됨
     k = os.environ.get("GEMINI_API_KEY", "").strip()
     if k:
         return k
@@ -300,7 +421,12 @@ def main(argv=None) -> int:
     ap.add_argument("folder", nargs="?", help="page_0001.png ... 가 들어 있는 폴더 (결과 폴더는 <폴더>_OCR)")
     ap.add_argument("-o", "--output", help="OCR 결과 폴더")
     ap.add_argument("--title")
-    ap.add_argument("--model", default=os.environ.get("GEMINI_MODEL", DEFAULT_MODEL), help=f"모델 이름 (기본 {DEFAULT_MODEL})")
+    ap.add_argument("--service", default="gemini", choices=["gemini", "nvidia", "openai"],
+                    help="AI 서비스: gemini(기본) / nvidia (NVIDIA build, 키는 nvidia_key.txt) / openai (OpenAI 형식, --base-url)")
+    ap.add_argument("--base-url", help="openai 서비스 주소 (예: Ollama http://localhost:11434/v1)")
+    ap.add_argument("--model", default=None, help=f"모델 이름 (gemini 기본 {DEFAULT_MODEL}, nvidia 기본 {SERVICES['nvidia']['model']})")
+    ap.add_argument("--list-models", nargs="?", const="", default=None, metavar="찾을말", dest="model_filter",
+                    help="이 키로 쓸 수 있는 모델 목록만 보여 줌 (예: --list-models qwen)")
     ap.add_argument("--thinking", default="none", choices=["", "none", "minimal", "low", "medium", "high"],
                     help="사고 수준 (기본 none = 보내지 않음). 모델이 받지 않으면 자동으로 뺌")
     ap.add_argument("--timeout", type=int, default=90, help="응답 조각 사이 대기 제한(초, 기본 90)")
@@ -317,18 +443,28 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if args.thinking == "none":  # PowerShell 은 빈 "" 를 넘기지 않으므로 none 으로도 받는다
         args.thinking = ""
+    if args.service == "gemini":
+        args.model = args.model or os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)
+    else:
+        args.base_url = args.base_url or SERVICES[args.service]["base"]
+        args.model = args.model or SERVICES[args.service]["model"]
+        if not args.model and args.model_filter is None:
+            ap.error("--model 로 모델 이름을 지정하세요 (목록: --list-models)")
 
-    if not args.folder and not args.check:
-        ap.error("책 폴더를 지정하세요 (연결 점검만 할 때는 --check)")
+    if not args.folder and not args.check and args.model_filter is None:
+        ap.error("책 폴더를 지정하세요 (연결 점검만 할 때는 --check, 모델 목록은 --list-models)")
     from bookdir import resolve, result_dir
     folder = resolve(args.folder or "books/_")
     out_dir = result_dir(folder, args.output, args.title)
     title = args.title or folder.name
     src = out_dir / f"{title}_교정.md"
-    key = load_key()
+    key = load_key(args.service)
     if not key:
-        print("[오류] API 키가 없습니다. 환경변수 GEMINI_API_KEY 를 지정하거나 이 폴더에 gemini_key.txt 를 만드세요.")
+        kf = "gemini_key.txt" if args.service == "gemini" else SERVICES[args.service]["key_file"]
+        print(f"[오류] API 키가 없습니다. 이 폴더({HERE})에 {kf} (키 한 줄)를 만드세요.")
         return 1
+    if args.model_filter is not None:
+        return list_models(args, key)
     if args.check:
         return run_check(key, args)
     if not src.is_file():
@@ -357,7 +493,7 @@ def main(argv=None) -> int:
             save_store(store_path, store)
         print("검사할 새 문단이 없습니다.")
         return 0
-    print(f"모델 {args.model} · 문단 {len(paras)}개를 {len(chunks)}번에 나눠 보냅니다 (분당 {args.rpm:g}회 이하)")
+    print(f"{args.service} · 모델 {args.model} · 문단 {len(paras)}개를 {len(chunks)}번에 나눠 보냅니다 (분당 {args.rpm:g}회 이하)")
     gap = 60.0 / max(0.1, args.rpm)
     last = 0.0
     n_sug = n_drop = n_bad = 0
@@ -375,13 +511,13 @@ def main(argv=None) -> int:
         try:
             try:
                 res = call_gemini(key, args.model, text, args.thinking, args.timeout, max_tokens,
-                                  args.temperature, args.no_proxy)
+                                  args.temperature, args.no_proxy, args)
             except BadReply as e:  # 작은 모델은 가끔 형식이 깨진 답을 보냄 → 한 번 더
                 print(f"\n  {i}번째 덩어리 답을 못 써서 한 번 더 보냅니다 ({str(e)[:60]})", flush=True)
                 time.sleep(gap)
                 last = time.monotonic()
                 res = call_gemini(key, args.model, text, args.thinking, args.timeout, max_tokens,
-                                  args.temperature, args.no_proxy)
+                                  args.temperature, args.no_proxy, args)
         except BadReply as e:
             print(f"\n  [건너뜀] {i}번째 덩어리: {e}  (검사 안 한 것으로 남겨 다음에 다시 보냅니다)")
             n_bad += 1
