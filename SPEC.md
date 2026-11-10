@@ -272,6 +272,7 @@ class PageResult:
 **흐름**: `3_OCR.bat` → `4_교정.bat`(`ebook_review.py`) → `5_내보내기.bat`(`ebook_export.py`).
 
 **교정 편집기** (`ebook_review.py` + `ebook_review.html`)
+- `EDITOR_VERSION`을 `.py`·`.html` 둘 다에 두고 열 때 비교: 다르면(업데이트 뒤 서버를 다시 켜지 않음) 경고. **서버 API를 바꾸면 두 곳의 값을 함께 올릴 것.**
 - `http.server`, `127.0.0.1`만, Host 검사(DNS rebinding 방지), 쓰기(PUT/POST)는 `X-Ebook-Review: 1` 머리글 필요. 외부 CDN 없음.
 - 작업 파일 `책이름_교정.md`: 처음 열 때 `_교정용.md`를 복사해 만들고 이후 **절대 덮어쓰지 않음**(OCR 재실행에도). 저장 때 `.md.bak` 한 벌.
 - 쪽 번호 = 정렬된 이미지의 1부터 순번 (`ebook_ocr.collect_pages`와 같은 규칙. 바꾸면 둘 다 고칠 것). 글 칸은 `<!-- p.N -->`로 나눈 그 쪽 글만 보임. 쪽을 넘어 이어 붙은 문단은 시작 쪽에 들어 있음.

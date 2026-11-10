@@ -1125,8 +1125,12 @@ window.addEventListener("keydown", e => {
 });
 
 // ---- 시작 --------------------------------------------------------------
+const EDITOR_VERSION = "2026-11-10.1";  // ebook_review.py 의 EDITOR_VERSION 과 같게
 (async function init() {
   try {
+    let sv = ""; try { sv = (await api("/api/version")).version; } catch (e) {}
+    if (sv !== EDITOR_VERSION) alert("편집기 프로그램이 이 화면보다 예전 판입니다 (업데이트 뒤 다시 켜지 않음).\n\n" +
+      "명령창에서 Ctrl+C 로 편집기를 닫고 4_교정.bat 를 다시 실행하세요.\n그대로 쓰면 일부 기능(확인 표시 등)이 저장되지 않습니다.");
     book = await api("/api/book");
     document.title = book.title + " — 교정";
     $("title").textContent = book.title;

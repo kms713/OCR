@@ -38,6 +38,7 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}  # ebook_ocr.py 와 같�
 LOW_SCORE = 0.8  # 이 신뢰도 미만 줄은 '의심 줄'
 MAX_BODY = 20 * 1024 * 1024
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
+EDITOR_VERSION = "2026-11-10.1"  # ebook_review.html 의 EDITOR_VERSION 과 같게 (업데이트 뒤 편집기를 다시 켰는지 확인용)
 
 FIG_LINK = re.compile(r"!\[([^\]\n]*)\]\((figures/[^)\s]+)\)")
 
@@ -263,6 +264,8 @@ def make_handler(book: Book):
                                        "low_score": LOW_SCORE})
                 if path == "/api/suggestions":
                     return self._json(book.suggestions())
+                if path == "/api/version":
+                    return self._json({"version": EDITOR_VERSION})
                 if path == "/api/checked":
                     return self._json(book.checked())
                 if path == "/api/source":
