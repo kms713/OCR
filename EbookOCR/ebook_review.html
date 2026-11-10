@@ -193,7 +193,7 @@
     </div>
     <div id="edwrap"><pre id="hl" aria-hidden="true"></pre><textarea id="editor" spellcheck="false"></textarea></div>
     <div id="preview" hidden></div>
-    <div id="sugPanel" hidden><div class="bar"><span class="t">AI 교정 제안</span><span id="sugInfo" style="color:var(--muted)"></span><span class="grow"></span><button id="acceptPage" title="이 쪽 제안을 모두 글에 반영">이 쪽 모두 수락</button><button id="rejectPage" title="이 쪽 제안을 모두 거절">이 쪽 모두 거절</button><button id="acceptAll" title="책 전체의 남은 제안을 한 번에 글에 반영">책 전체 모두 수락…</button></div><div id="sugList"></div></div>
+    <div id="sugPanel" hidden><div class="bar"><span class="t">AI 교정 제안</span><span id="sugInfo" style="color:var(--muted)"></span><span class="grow"></span><button id="acceptPage" title="이 쪽 제안을 모두 글에 반영">이 쪽 모두 수락</button><button id="rejectPage" title="이 쪽 제안을 모두 거절">이 쪽 모두 거절</button><button id="acceptAll" title="책 전체의 남은 제안을 한 번에 글에 반영">책 전체 모두 수락…</button><button id="staleSug" hidden title="원문 문단을 고쳤거나 쪽 나누기로 문단이 나뉘어 더는 넣을 수 없는 제안을 목록에서 치움 (글은 바뀌지 않음)"></button></div><div id="sugList"></div></div>
   </section>
 </main>
 <div id="mirror"></div>
@@ -997,6 +997,12 @@ function paragraphsOfPage(no) {  // 그 쪽의 문단(줄) 목록
   const r = pageRange(no); if (!r) return [];
   return full.slice(r.from, r.to).split("\n").map(x => x.trim()).filter(Boolean);
 }
+function liveSugs() {  // 지금 글에 원문 문단이 그대로 있어 넣을 수 있는 제안 / 맞출 수 없는 제안
+  const lines = new Set(full.split("\n").map(x => x.trim()));
+  const live = [], gone = [];
+  sugMap.forEach((v, k) => (lines.has(k) ? live : gone).push(v));
+  return { live, gone };
+}
 function sugPages() {  // 제안이 남은 쪽 번호들
   return markers().map(m => m.no).filter(no => paragraphsOfPage(no).some(t => sugMap.has(t)));
 }
@@ -1004,13 +1010,15 @@ function renderSuggestions() {
   const panel = $("sugPanel"), list = $("sugList");
   highlight();
   if (!sugMap.size) { panel.hidden = true; $("nextSug").hidden = true; return; }
-  const pages = sugPages();
+  const pages = sugPages(), { live, gone } = liveSugs();
   $("nextSug").hidden = false; $("nextSug").textContent = "다음 제안 쪽 (" + pages.length + "쪽 남음)";
+  $("staleSug").hidden = !gone.length;
+  $("staleSug").textContent = "맞출 수 없는 제안 " + gone.length + "건 정리";
   const here = [...new Set(paragraphsOfPage(page).filter(t => sugMap.has(t)))];
   panel.hidden = false; list.innerHTML = "";
   $("acceptPage").hidden = $("rejectPage").hidden = !here.length;
-  $("sugInfo").textContent = here.length ? "이 쪽 " + here.length + "건 · 남은 제안 " + sugMap.size + "건 (원문은 수락 전까지 그대로입니다)"
-    : "이 쪽에는 제안이 없습니다 · 남은 제안 " + sugMap.size + "건 → '다음 제안 쪽'";
+  $("sugInfo").textContent = here.length ? "이 쪽 " + here.length + "건 · 남은 제안 " + live.length + "건 (원문은 수락 전까지 그대로입니다)"
+    : live.length ? "이 쪽에는 제안이 없습니다 · 남은 제안 " + live.length + "건 → '다음 제안 쪽'" : "넣을 수 있는 제안을 모두 처리했습니다";
   for (const orig of here) {
     const s = sugMap.get(orig), card = document.createElement("div"); card.className = "sug";
     const diff = lcsDiff(orig, s.sug); const esc = x => x.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
@@ -1063,13 +1071,22 @@ async function resolvePage(accept) {
   setStatus("이 쪽 제안 " + n + "건을 " + (accept ? "반영했습니다" : "거절했습니다"));
 }
 $("acceptPage").onclick = () => resolvePage(true);
-function bulkTargets(skipFlag) { return [...sugMap.values()].filter(s => !(skipFlag && s.flags.length)); }
+function bulkTargets(skipFlag) { return liveSugs().live.filter(s => !(skipFlag && s.flags.length)); }
 function bulkInfo() {
-  const all = sugMap.size, flagged = [...sugMap.values()].filter(s => s.flags.length).length, n = bulkTargets($("bulkSkipFlag").checked).length;
+  const lv = liveSugs().live, all = lv.length, flagged = lv.filter(s => s.flags.length).length, n = bulkTargets($("bulkSkipFlag").checked).length;
   $("bulkInfo").textContent = "남은 제안 " + all + "건 (⚠ " + flagged + "건) → " + n + "건을 수락합니다. 문단마다 고친 곳 전부가 들어갑니다.";
   $("bulkOk").disabled = !n;
 }
 $("acceptAll").onclick = () => { bulkInfo(); $("bulkDlg").showModal(); };
+$("staleSug").onclick = async () => {
+  const gone = liveSugs().gone; if (!gone.length) return;
+  if (!confirm("원문 문단을 고쳤거나 문단이 나뉘어 넣을 수 없는 제안 " + gone.length + "건을 목록에서 치웁니다. 글은 바뀌지 않습니다.\n" +
+               "(나뉜 문단을 다시 검사받으려면 6_AI교정제안.bat 를 실행하세요)")) return;
+  try { await api("/api/suggest/status-many", { method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ items: gone.map(s => ({ orig: s.orig, status: "stale" })) }) }); }
+  catch (e) { setStatus("정리 실패: " + e.message, true); return; }
+  gone.forEach(s => sugMap.delete(s.orig)); renderSuggestions(); setStatus("맞출 수 없는 제안 " + gone.length + "건을 치웠습니다");
+};
 $("bulkSkipFlag").onchange = bulkInfo;
 $("bulkCancel").onclick = () => $("bulkDlg").close();
 $("bulkOk").onclick = async () => {
@@ -1088,7 +1105,7 @@ $("bulkOk").onclick = async () => {
   }
   renderSuggestions();
   const miss = want.size - done.size;
-  setStatus("제안 " + done.size + "건을 반영했습니다" + (miss ? " · 원문이 이미 바뀌어 못 넣은 " + miss + "건은 남겨 둠" : ""));
+  setStatus("제안 " + done.size + "건을 반영했습니다" + (miss ? " · 못 넣은 " + miss + "건은 남겨 둠" : ""));
 };
 $("rejectPage").onclick = () => resolvePage(false);
 $("nextSug").onclick = () => {
@@ -1125,7 +1142,7 @@ window.addEventListener("keydown", e => {
 });
 
 // ---- 시작 --------------------------------------------------------------
-const EDITOR_VERSION = "2026-11-10.1";  // ebook_review.py 의 EDITOR_VERSION 과 같게
+const EDITOR_VERSION = "2026-11-10.2";  // ebook_review.py 의 EDITOR_VERSION 과 같게
 (async function init() {
   try {
     let sv = ""; try { sv = (await api("/api/version")).version; } catch (e) {}

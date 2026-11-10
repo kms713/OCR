@@ -38,7 +38,7 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}  # ebook_ocr.py 와 같�
 LOW_SCORE = 0.8  # 이 신뢰도 미만 줄은 '의심 줄'
 MAX_BODY = 20 * 1024 * 1024
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
-EDITOR_VERSION = "2026-11-10.1"  # ebook_review.html 의 EDITOR_VERSION 과 같게 (업데이트 뒤 편집기를 다시 켰는지 확인용)
+EDITOR_VERSION = "2026-11-10.2"  # ebook_review.html 의 EDITOR_VERSION 과 같게 (업데이트 뒤 편집기를 다시 켰는지 확인용)
 
 FIG_LINK = re.compile(r"!\[([^\]\n]*)\]\((figures/[^)\s]+)\)")
 
@@ -171,7 +171,7 @@ class Book:
 
     def set_suggest_status_many(self, pairs: list[tuple[str, str]]) -> None:
         """여러 제안의 상태를 한 번에 (책 전체 일괄 수락용)."""
-        if any(st not in ("accepted", "rejected") for _, st in pairs):
+        if any(st not in ("accepted", "rejected", "stale") for _, st in pairs):  # stale: 글이 바뀌어 맞출 수 없어 정리함
             raise ValueError("잘못된 상태")
         want = dict(pairs)
         with self.lock:
