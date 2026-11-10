@@ -183,10 +183,11 @@
   <div class="opt">행 나누기:
     <select id="tblGap"><option value="0.15">촘촘하게 (행을 많이 나눔)</option><option value="0.5" selected>보통</option><option value="1.0">넓게 (행을 적게 나눔)</option></select>
     <label><input type="checkbox" id="tblHead" checked> 첫 행은 머리 행</label>
+    <label title="한 칸 안에 여러 줄이 있으면 &lt;br&gt; 로 줄을 나눔. 끄면 빈칸으로 이어 붙임 (좁은 칸에서 긴 문장이 꺾인 경우)"><input type="checkbox" id="tblBr"> 칸 안 줄바꿈 살리기 (&lt;br&gt;)</label>
     <span id="tblInfo"></span></div>
   <div id="tblPreview"></div>
   <textarea id="tblText" spellcheck="false"></textarea>
-  <div style="color:var(--muted);font-size:12px">한 줄이 한 행, | 로 칸을 나눕니다. 둘째 줄 |---|---| 은 머리 행 구분선입니다. 칸 안의 | 는 \| 로 씁니다.</div>
+  <div style="color:var(--muted);font-size:12px">한 줄이 한 행, | 로 칸을 나눕니다. 둘째 줄 |---|---| 은 머리 행 구분선입니다. 칸 안 줄바꿈은 &lt;br&gt;, 칸 안의 | 는 \| 로 씁니다.</div>
   <label style="display:block;margin-top:6px"><input type="checkbox" id="tblRemove" checked> <span id="tblRemoveInfo"></span></label>
   <div class="row"><button id="tblCancel">취소</button><button id="tblOk" class="on">넣기</button></div>
 </dialog>
@@ -272,7 +273,8 @@ function plainHl(t) {  // 서식 표시가 없는 글: 그림·주석·[?] 색�
   return escH(t)
     .replace(/!\[([^\]]*)\]\(([^)]*)\)/g, '<span class="m-img">![<span class="m-alt">$1</span>]($2)</span>')
     .replace(/&lt;!--.*?--&gt;/g, m => '<span class="m-cm">' + m + "</span>")
-    .replace(/\[\?\]/g, '<span class="m-q">[?]</span>');
+    .replace(/\[\?\]/g, '<span class="m-q">[?]</span>')
+    .replace(/&lt;br\s*\/?&gt;/gi, m => '<span class="m-mk">' + m + "</span>");
 }
 function hlInline(t, fmt) {  // 서식 표시는 흐리게, 안의 글은 서식마다 색 (겹치면 겹쳐서)
   fmt = fmt || ""; let out = "", k = 0;
@@ -587,7 +589,7 @@ function groupSpans(spans, gap) {  // [[a,b,i]...] → 겹치거나 gap 안으�
   for (const [a, b, i] of spans) { if (cur && a <= end + gap) { cur.push(i); end = Math.max(end, b); } else { cur = [i]; out.push(cur); end = b; } }
   return out;
 }
-function buildTable(segs, gapK) {
+function buildTable(segs, gapK, keepBr) {
   if (!segs.length) return "";
   const hs = segs.map(s => s.box[3] - s.box[1]).sort((a, b) => a - b), h = hs[hs.length >> 1] || 20;
   const cols = groupSpans(segs.map((s, i) => [s.box[0], s.box[2], i]), 0.3 * h);
@@ -595,7 +597,17 @@ function buildTable(segs, gapK) {
   const colOf = [], rowOf = []; cols.forEach((g, c) => g.forEach(i => colOf[i] = c)); rows.forEach((g, r) => g.forEach(i => rowOf[i] = r));
   const grid = rows.map(() => cols.map(() => []));
   segs.forEach((s, i) => grid[rowOf[i]][colOf[i]].push(s));
-  const cell = list => list.sort((p, q) => p.box[1] - q.box[1] || p.box[0] - q.box[0]).map(s => s.text.trim()).join(" ").replace(/\|/g, "\\|");
+  const cell = list => {  // 칸 안 글: 세로로 겹치는 것은 한 줄(빈칸), 다른 줄은 keepBr 이면 <br>
+    list.sort((p, q) => p.box[1] - q.box[1] || p.box[0] - q.box[0]);
+    const lines = [];
+    for (const s of list) {
+      const last = lines[lines.length - 1];
+      if (last && s.box[1] < last.y1 - 0.3 * (last.y1 - last.y0)) { last.t.push(s); last.y1 = Math.max(last.y1, s.box[3]); }
+      else lines.push({ t: [s], y0: s.box[1], y1: s.box[3] });
+    }
+    return lines.map(l => l.t.sort((p, q) => p.box[0] - q.box[0]).map(s => s.text.trim()).join(" "))
+      .join(keepBr ? "<br>" : " ").replace(/\|/g, "\\|");
+  };
   const lines = grid.map(r => "| " + r.map(cell).join(" | ") + " |");
   lines.splice(1, 0, "|" + cols.map(() => "---").join("|") + "|");
   return lines.join("\n");
@@ -607,12 +619,12 @@ function parseMdTable(text) {  // 마크다운 표 → [[칸...]...] (구분선 
 }
 function renderTablePreview() {
   const rows = parseMdTable($("tblText").value), head = $("tblHead").checked, esc = x => x.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-  $("tblPreview").innerHTML = rows.length ? "<table>" + rows.map((r, i) => "<tr>" + r.map(c => (i === 0 && head ? "<th>" : "<td>") + esc(c) + (i === 0 && head ? "</th>" : "</td>")).join("") + "</tr>").join("") + "</table>"
+  $("tblPreview").innerHTML = rows.length ? "<table>" + rows.map((r, i) => "<tr>" + r.map(c => (i === 0 && head ? "<th>" : "<td>") + esc(c).replace(/&lt;br\s*\/?&gt;/gi, "<br>") + (i === 0 && head ? "</th>" : "</td>")).join("") + "</tr>").join("") + "</table>"
     : '<div style="padding:8px;color:var(--muted)">표가 비었습니다</div>';
   $("tblInfo").textContent = rows.length ? rows.length + "행 × " + Math.max(...rows.map(r => r.length)) + "열" : "";
 }
 function tableDraft() {
-  const segs = tableSegs(tblBox), md = buildTable(segs, +$("tblGap").value);
+  const segs = tableSegs(tblBox), md = buildTable(segs, +$("tblGap").value, $("tblBr").checked);
   $("tblText").value = $("tblHead").checked ? md : md.split("\n").filter((l, i) => i !== 1).join("\n");
   // 본문에 한 줄로 들어가 있던 표 글 찾기: 문단 글자의 80% 이상이 표 칸 글이면 표 글로 봄
   const keys = segs.map(s => sq(s.text)).filter(k => k.length >= 2);
@@ -633,6 +645,7 @@ function tableDraft() {
 function openTableDialog(box) { tblBox = box; tableDraft(); $("tblDlg").showModal(); $("tblText").focus(); }
 $("tblGap").onchange = tableDraft;
 $("tblHead").onchange = tableDraft;
+$("tblBr").onchange = tableDraft;
 $("tblText").addEventListener("input", renderTablePreview);
 $("tblCancel").onclick = () => { $("tblDlg").close(); sel.hidden = true; pendingBox = null; };
 $("tblOk").onclick = () => {

@@ -314,7 +314,11 @@ def build_docx(parsed: Parsed, title: str, base: Path, path: Path, captions: boo
                 for j in range(n):
                     c = t.cell(i, j)
                     para = c.paragraphs[0]
-                    add_inline(para, r[j] if j < len(r) else "", Pt(9.5))
+                    parts = re.split(r"<br\s*/?>", r[j] if j < len(r) else "", flags=re.I)  # 칸 안 줄바꿈
+                    for k, part in enumerate(parts):
+                        if k:
+                            para.add_run().add_break()
+                        add_inline(para, part.strip(), Pt(9.5))
                     if i == 0 and b.head:
                         for run in para.runs:
                             run.bold = True
