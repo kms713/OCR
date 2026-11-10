@@ -8,6 +8,6 @@ if not exist ".venv_gpu\Scripts\python.exe" (
 )
 set /p BOOK=책 이름(캡처한 폴더 이름)을 입력하세요: 
 if "%BOOK%"=="" exit /b 1
-rem 결과는 books\책이름_OCR_GPU 에 따로 저장 - 기존 CPU 결과와 섞이지 않게
-.venv_gpu\Scripts\python.exe ebook_ocr.py "books\%BOOK%" -o "books\%BOOK%_OCR_GPU" --device gpu %*
+rem 결과는 3_OCR.bat 와 같은 books\책이름_OCR (그래픽카드·CPU 결과 글자 99.99%% 동일, 속도만 다름)
+.venv_gpu\Scripts\python.exe ebook_ocr.py "books\%BOOK%" --device gpu %*
 pause

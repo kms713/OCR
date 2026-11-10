@@ -23,7 +23,7 @@
 | 판 | 실행 순서 | 결과 |
 |---|---|---|
 | 기본(CPU) | `설치.bat` → `1_캡처점검.bat` → `2_캡처.bat` → `3_OCR.bat` | `books\책이름_OCR\` |
-| 그래픽카드 | `설치_GPU.bat`(처음 한 번) → 캡처 후 `3_OCR_GPU.bat` | `books\책이름_OCR_GPU\` |
+| 그래픽카드 | `설치_GPU.bat`(처음 한 번) → 캡처 후 `3_OCR_GPU.bat` | `books\책이름_OCR\` (CPU 판과 같은 곳) |
 
 - 저장소 그대로의 폴더 구조로 두면 `OCR/ExamOCR_build/ocr_paddle.py`를 자동으로 찾아 씁니다.
 - 결과 폴더의 `처리시간.txt`에 쪽당 인식 시간이 남습니다.

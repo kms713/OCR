@@ -75,7 +75,7 @@ EbookOCR/                  ← 전자책 OCR
   ebook_review.py/.html    교정 편집기 (브라우저, 표준 라이브러리 서버)
   ebook_export.py          교정 글 → 완성본 docx + AI용 md
   ebook_suggest.py         Gemini 맞춤법·OCR 교정 제안 (선택, 원문 불변)
-  bookdir.py               책 폴더 위치: 책폴더.txt(PC별, git 제외)가 있으면 'books\\X' → 그 경로\\X. 결과 폴더 기본 X_OCR, 없고 X_OCR_GPU만 있으면(또는 GPU 쪽에만 교정 중 파일) GPU 쪽
+  bookdir.py               책 폴더 위치: 책폴더.txt(PC별, git 제외)가 있으면 'books\\X' → 그 경로\\X. 결과 폴더 X_OCR (3_OCR_GPU.bat도 2026-11-10부터 같은 곳). 예전 판이 만든 X_OCR_GPU만 있으면(또는 그쪽에만 교정 중 파일) 그쪽
   설치_교정용.bat          OCR 없는 가벼운 설치(pillow, python-docx: requirements_edit.txt)
   책폴더_설정.bat          bookdir.py 실행 (경로 입력·확인)
   설치.bat, 1_캡처점검.bat, 2_캡처.bat, 3_OCR.bat, 4_교정.bat, 5_내보내기.bat, 설치_GPU.bat, 3_OCR_GPU.bat
