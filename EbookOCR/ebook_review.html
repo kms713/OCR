@@ -96,6 +96,10 @@
   .sug ins { background:rgba(46,155,95,.28); text-decoration:none; }
   .sug .sp { font-size:.8em; opacity:.75; }
   .sug ins, .sug del { padding:0 3px; border-radius:3px; font-weight:700; }  /* 마침표 하나도 잘 보이게 */
+  .sug .hunk { cursor:pointer; border-radius:3px; }
+  .sug .hunk.off del { background:none; text-decoration:none; font-weight:400; }
+  .sug .hunk.off ins { background:none; text-decoration:line-through; opacity:.5; font-weight:400; outline:1px dashed var(--muted); }
+  .sug .tip { color:var(--muted); font-size:12px; margin-left:6px; }
   .sug .flag { color:var(--low); font-weight:600; font-size:12px; margin-left:6px; }
   .sug .btns { margin-top:6px; display:flex; gap:6px; }
   .warn { color:var(--low); font-weight:600; }
@@ -474,7 +478,7 @@ function makeNote() {
   rest = rest.slice(0, at) + "\n\n> 주: " + note + rest.slice(at);
   rest = rest.replace(/\n{3,}/g, "\n\n");
   const k = rest.indexOf("> 주: " + note);
-  setText(rest, k, k + 5 + note.length); setStatus("각주로 옮겼습니다");
+  setText(rest, k); setStatus("각주로 옮겼습니다");
 }
 function moveBlock(dir) {  // 커서가 있는 문단(빈 줄로 나뉜 덩어리)을 위·아래 문단과 자리 바꿈
   if (ed.readOnly) return;
@@ -485,7 +489,7 @@ function moveBlock(dir) {  // 커서가 있는 문단(빈 줄로 나뉜 덩어�
   if (i >= blocks.length || j < 0 || j >= blocks.length) { setStatus(dir < 0 ? "이 쪽 맨 위입니다 (다른 쪽으로는 잘라내기·붙여넣기)" : "이 쪽 맨 아래입니다 (다른 쪽으로는 잘라내기·붙여넣기)", true); return; }
   [blocks[i], blocks[j]] = [blocks[j], blocks[i]];
   const v = blocks.join("\n\n"); let k = 0; for (let n = 0; n < j; n++) k += blocks[n].length + 2;
-  setText(v, k, k + blocks[j].length);
+  setText(v, k);  // 커서만 옮긴 문단 앞에 (선택해 두면 다음 서식 버튼이 문단 전체에 걸림)
 }
 $("fB").onclick = () => wrapSel("**", "**");
 $("fI").onclick = () => wrapSel("*", "*");
@@ -629,14 +633,27 @@ function renderSuggestions() {
     const s = sugMap.get(orig), card = document.createElement("div"); card.className = "sug";
     const diff = lcsDiff(orig, s.sug); const esc = x => x.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
     const vis = x => esc(x).replace(/ /g, '<span class="sp">␣</span>');  // 빠지거나 더해진 띄어쓰기를 보이게
-    const a = diff.map(([k, c]) => k === "=" ? esc(c) : k === "-" ? "<del>" + vis(c) + "</del>" : "").join("");
-    const b = diff.map(([k, c]) => k === "=" ? esc(c) : k === "+" ? "<ins>" + vis(c) + "</ins>" : "").join("");
-    card.innerHTML = '<div class="tx"><span class="lbl">원문</span>' + a + '</div><div class="tx"><span class="lbl">제안</span>' + b +
+    // 고친 곳(바뀐 글자가 이어진 덩어리)마다 번호를 매겨, 눌러서 넣거나 뺄 수 있게
+    const hunkOf = []; let hn = -1, prev = "=";
+    diff.forEach(([k], i) => { if (k !== "=" && prev === "=") hn++; hunkOf[i] = k === "=" ? -1 : hn; prev = k; });
+    const nH = hn + 1, on = new Array(nH).fill(true);
+    const row = side => diff.map(([k, c], i) => k === "=" ? esc(c) : k === side
+      ? '<span class="hunk" data-h="' + hunkOf[i] + '" title="눌러서 이 고친 곳을 넣거나 빼기">' + (k === "-" ? "<del>" : "<ins>") + vis(c) + (k === "-" ? "</del>" : "</ins>") + "</span>" : "").join("");
+    card.innerHTML = '<div class="tx"><span class="lbl">원문</span>' + row("-") + '</div><div class="tx"><span class="lbl">제안</span>' + row("+") +
       (s.flags.length ? '<span class="flag">⚠ ' + s.flags.join(", ") + " — 원본과 꼭 대조하세요</span>" : "") + '</div><div class="btns"></div>';
-    const acc = document.createElement("button"); acc.textContent = "수락"; acc.className = "on";
+    const acc = document.createElement("button"); acc.className = "on";
     const rej = document.createElement("button"); rej.textContent = "거절";
-    acc.onclick = () => acceptSug(orig); rej.onclick = () => resolveSug(orig, "rejected");
-    card.querySelector(".btns").append(acc, rej); list.appendChild(card);
+    const tip = document.createElement("span"); tip.className = "tip";
+    const built = () => diff.map(([k, c], i) => k === "=" ? c : (on[hunkOf[i]] ? (k === "+" ? c : "") : (k === "-" ? c : ""))).join("");
+    const refresh = () => {
+      const n = on.filter(Boolean).length;
+      acc.textContent = n === nH ? "수락" : "고른 " + n + "곳만 수락"; acc.disabled = n === 0;
+      tip.textContent = nH > 1 ? "고친 곳 " + nH + "곳 · 바뀐 글자를 누르면 넣거나 뺄 수 있습니다" : "";
+      card.querySelectorAll(".hunk").forEach(e => e.classList.toggle("off", !on[+e.dataset.h]));
+    };
+    card.querySelectorAll(".hunk").forEach(e => e.addEventListener("click", ev => { ev.stopPropagation(); on[+e.dataset.h] = !on[+e.dataset.h]; refresh(); }));
+    acc.onclick = () => acceptSug(orig, false, built()); rej.onclick = () => resolveSug(orig, "rejected");
+    card.querySelector(".btns").append(acc, rej, tip); list.appendChild(card); refresh();
     card.querySelector(".tx").style.cursor = "pointer"; card.querySelector(".tx").title = "누르면 글 칸에서 이 문단을 표시합니다";
     card.querySelector(".tx").onclick = () => { const k = ed.value.indexOf(orig); if (k >= 0) { ed.focus({ preventScroll: true }); ed.setSelectionRange(k, k + orig.length); scrollEditorTo(k); } };
   }
@@ -646,12 +663,12 @@ async function resolveSug(orig, status) {
   catch (e) { setStatus("제안 상태 저장 실패: " + e.message, true); return; }
   sugMap.delete(orig); renderSuggestions();
 }
-async function acceptSug(orig, quiet) {
+async function acceptSug(orig, quiet, text) {  // text: 고친 곳 일부만 고른 경우의 결과 글 (없으면 제안 전체)
   const s = sugMap.get(orig); if (!s) return false;
   const v = ed.value, k = v.indexOf(orig);
   if (k < 0) { setStatus("원문이 이미 바뀌어 적용하지 못했습니다 (제안을 거절 처리하세요)", true); return false; }
   const top = ed.scrollTop;
-  ed.value = v.slice(0, k) + s.sug + v.slice(k + orig.length); ed.scrollTop = top;
+  ed.value = v.slice(0, k) + (text === undefined ? s.sug : text) + v.slice(k + orig.length); ed.scrollTop = top;
   onEdited(); await resolveSug(orig, "accepted"); if (!quiet) setStatus("제안을 반영했습니다");
   return true;
 }
