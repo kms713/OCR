@@ -75,6 +75,14 @@
   #hl .m-q { background:var(--md-q); border-radius:3px; }
   #hl .m-sug { background:var(--md-sug); border-radius:3px; }
   .legend { color:var(--muted); font-size:12px; }
+  #hl .m-tbl { color:var(--md-h2); }
+  #tblDlg { max-width:min(960px, 96vw); width:960px; }
+  #tblPreview { max-height:38vh; overflow:auto; margin:8px 0; border:1px solid var(--line); border-radius:6px; }
+  #tblPreview table { border-collapse:collapse; width:100%; font-size:13px; }
+  #tblPreview th, #tblPreview td { border:1px solid var(--line); padding:3px 6px; vertical-align:top; text-align:left; }
+  #tblPreview th { background:var(--bg); }
+  #tblText { font:13px/1.5 ui-monospace, Consolas, monospace; min-height:120px; white-space:pre; }
+  #tblDlg .opt { display:flex; flex-wrap:wrap; gap:8px; align-items:center; color:var(--muted); font-size:13px; }
   .legend i { font-style:normal; padding:0 4px; border-radius:3px; }
   #mirror { position:absolute; visibility:hidden; white-space:pre-wrap; overflow-wrap:break-word; padding:12px 14px; border:0;
             font:15px/1.7 "Malgun Gothic","맑은 고딕","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif; }
@@ -120,6 +128,7 @@
   <button id="nextSug" title="AI 교정 제안이 남은 다음 쪽으로 이동 (Alt+S)" hidden>다음 제안 쪽</button>
   <button id="cropMode" title="이미지에서 영역을 끌어 그림으로 넣기 (Alt+G)">그림 넣기 모드</button>
   <button id="figs" title="넣은 그림 목록과 설명이 빠진 그림 점검">그림 목록</button>
+  <button id="tableMode" title="이미지에서 표 영역을 끌어 지정하면 표 초안을 만들어 넣음 (Alt+T)">표 넣기 모드</button>
   <span class="sep"></span>
   <button id="zoomOut" title="축소 (Ctrl+휠)">－</button><button id="zoomText" title="글이 있는 영역을 칸 폭에 맞춤 (기본)">글 맞춤</button><button id="zoomFit" title="쪽 전체를 칸 폭에 맞춤">쪽 전체</button><button id="zoomIn" title="확대 (Ctrl+휠)">＋</button>
   <span class="grow"></span>
@@ -134,7 +143,7 @@
   <section>
     <div class="bar"><span class="t" id="edTitle">교정 글</span><button id="contToggle" hidden title="이 쪽 첫 문단을 앞 쪽 마지막 문단과 이어 붙일지 (내보낼 때 적용)"></button>
       <span class="legend">이 쪽 글만 보입니다 ·
-        <i style="color:var(--md-h)">## 대</i><i style="color:var(--md-h2)">### 중</i><i style="color:var(--md-h3)">#### 소</i><i style="color:var(--md-quote)">&gt; 주</i><i style="color:var(--md-img)">![그림]</i><i style="background:var(--md-q)">[?]</i><i style="background:var(--md-sug)">AI 제안 있음</i></span>
+        <i style="color:var(--md-h)">## 대</i><i style="color:var(--md-h2)">### 중</i><i style="color:var(--md-h3)">#### 소</i><i style="color:var(--md-quote)">&gt; 주</i><i style="color:var(--md-img)">![그림]</i><i style="color:var(--md-h2)">| 표 |</i><i style="background:var(--md-q)">[?]</i><i style="background:var(--md-sug)">AI 제안 있음</i></span>
       <span class="grow"></span>
       <input id="findText" type="text" placeholder="찾기" size="10"><input id="replText" type="text" placeholder="바꿀 글" size="10">
       <button id="findNext">찾기</button><button id="replAll">모두 바꾸기</button>
@@ -167,6 +176,19 @@
   <textarea id="figAlt" placeholder="예: 3단계 학습 과정을 보여주는 순서도. 입력 → 처리 → 출력 순으로 화살표가 이어진다."></textarea>
   <div style="color:var(--muted);font-size:12px">비워 두면 &quot;설명 없음&quot;으로 표시되고, 내보낼 때 알려 드립니다.</div>
   <div class="row"><button id="figCancel">취소</button><button id="figOk" class="on">넣기</button></div>
+</dialog>
+
+<dialog id="tblDlg">
+  <h2>표 넣기 — 초안을 확인하고 고치세요</h2>
+  <div class="opt">행 나누기:
+    <select id="tblGap"><option value="0.15">촘촘하게 (행을 많이 나눔)</option><option value="0.5" selected>보통</option><option value="1.0">넓게 (행을 적게 나눔)</option></select>
+    <label><input type="checkbox" id="tblHead" checked> 첫 행은 머리 행</label>
+    <span id="tblInfo"></span></div>
+  <div id="tblPreview"></div>
+  <textarea id="tblText" spellcheck="false"></textarea>
+  <div style="color:var(--muted);font-size:12px">한 줄이 한 행, | 로 칸을 나눕니다. 둘째 줄 |---|---| 은 머리 행 구분선입니다. 칸 안의 | 는 \| 로 씁니다.</div>
+  <label style="display:block;margin-top:6px"><input type="checkbox" id="tblRemove" checked> <span id="tblRemoveInfo"></span></label>
+  <div class="row"><button id="tblCancel">취소</button><button id="tblOk" class="on">넣기</button></div>
 </dialog>
 
 <dialog id="figListDlg">
@@ -275,6 +297,8 @@ function hlLine(line) {
   else if ((m = /^(>\s?)(.*)$/.exec(line))) out = '<span class="m-quote"><span class="m-mk">' + escH(m[1]) + "</span>" + hlInline(m[2]) + "</span>";
   else if ((m = /^(\s*)([-*+]|\d+[.)])(\s.*)$/.exec(line))) out = escH(m[1]) + '<span class="m-mk">' + escH(m[2]) + "</span>" + hlInline(m[3]);
   else if (/^\s*(\*{3,}|-{3,}|_{3,})\s*$/.test(line)) out = '<span class="m-mk">' + escH(line) + "</span>";
+  else if (/^\s*\|.*\|\s*$/.test(line)) out = /^[\s|:-]+$/.test(line) ? '<span class="m-mk">' + escH(line) + "</span>"
+    : '<span class="m-tbl">' + line.split(/(?<!\\)\|/).map(c => hlInline(c)).join('<span class="m-mk">|</span>') + "</span>";
   else out = hlInline(line);
   return line.trim() && sugMap.has(line.trim()) ? '<span class="m-sug">' + out + "</span>" : out;
 }
@@ -399,8 +423,9 @@ function showSel(a, b) {
   return [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y)];
 }
 let dragStart = null;
+let tableOn = false;
 overlay.addEventListener("mousedown", ev => {
-  if (!cropOn) return;
+  if (!cropOn && !tableOn) return;
   ev.preventDefault(); dragStart = natural(ev);
 });
 window.addEventListener("mousemove", ev => { if (dragStart) pendingBox = showSel(dragStart, natural(ev)); });
@@ -408,7 +433,7 @@ window.addEventListener("mouseup", ev => {
   if (!dragStart) return;
   const box = showSel(dragStart, natural(ev)); dragStart = null;
   if (box[2] - box[0] < 12 || box[3] - box[1] < 12) { sel.hidden = true; pendingBox = null; return; }
-  pendingBox = box; openFigDialog();
+  pendingBox = box; if (tableOn) openTableDialog(box); else openFigDialog();
 });
 overlay.addEventListener("click", ev => {
   const t = ev.target;
@@ -418,7 +443,7 @@ overlay.addEventListener("click", ev => {
     pendingBox = showSel({ fx: b[0] / W, fy: b[1] / H, x: b[0], y: b[1] }, { fx: b[2] / W, fy: b[3] / H, x: b[2], y: b[3] });
     openFigDialog(); return;
   }
-  if (!cropOn && t.classList.contains("rbox")) gotoRow(+t.dataset.idx);
+  if (!cropOn && !tableOn && t.classList.contains("rbox")) gotoRow(+t.dataset.idx);
 });
 function openFigDialog() {
   $("thumb").src = ""; $("figAlt").value = "";
@@ -547,6 +572,84 @@ $("contToggle").onclick = () => {  // 쪽 표시 줄의 '이어짐'을 켜고 �
   setStatus(mk.cont ? "내보낼 때 앞 쪽과 이어 붙이지 않습니다" : "내보낼 때 이 쪽 첫 문단을 앞 쪽 마지막 문단에 이어 붙입니다");
 };
 
+// ---- 표 넣기 ----------------------------------------------------------------
+// 고른 영역 안 글상자(boxes)를 가로로 겹치는 것끼리 열로, 세로로 가까운 것끼리 행으로 묶어 마크다운 표 초안을 만든다
+let tblBox = null, tblDel = [];
+const sq = t => t.replace(/[\s*⁠]|<\/?u>/g, "");
+function tableSegs(box) {
+  const d = rowsData[page] || {};
+  const src = (d.boxes && d.boxes.length) ? d.boxes : (d.rows || []);
+  return src.filter(s => { const cx = (s.box[0] + s.box[2]) / 2, cy = (s.box[1] + s.box[3]) / 2;
+    return cx >= box[0] && cx <= box[2] && cy >= box[1] && cy <= box[3] && s.text.trim(); });
+}
+function groupSpans(spans, gap) {  // [[a,b,i]...] → 겹치거나 gap 안으로 가까운 것끼리 묶음 (번호 배열의 배열)
+  spans.sort((p, q) => p[0] - q[0]); const out = []; let cur = null, end = -1e9;
+  for (const [a, b, i] of spans) { if (cur && a <= end + gap) { cur.push(i); end = Math.max(end, b); } else { cur = [i]; out.push(cur); end = b; } }
+  return out;
+}
+function buildTable(segs, gapK) {
+  if (!segs.length) return "";
+  const hs = segs.map(s => s.box[3] - s.box[1]).sort((a, b) => a - b), h = hs[hs.length >> 1] || 20;
+  const cols = groupSpans(segs.map((s, i) => [s.box[0], s.box[2], i]), 0.3 * h);
+  const rows = groupSpans(segs.map((s, i) => [s.box[1], s.box[3], i]), gapK * h);
+  const colOf = [], rowOf = []; cols.forEach((g, c) => g.forEach(i => colOf[i] = c)); rows.forEach((g, r) => g.forEach(i => rowOf[i] = r));
+  const grid = rows.map(() => cols.map(() => []));
+  segs.forEach((s, i) => grid[rowOf[i]][colOf[i]].push(s));
+  const cell = list => list.sort((p, q) => p.box[1] - q.box[1] || p.box[0] - q.box[0]).map(s => s.text.trim()).join(" ").replace(/\|/g, "\\|");
+  const lines = grid.map(r => "| " + r.map(cell).join(" | ") + " |");
+  lines.splice(1, 0, "|" + cols.map(() => "---").join("|") + "|");
+  return lines.join("\n");
+}
+function parseMdTable(text) {  // 마크다운 표 → [[칸...]...] (구분선 줄은 뺌)
+  return text.split("\n").map(l => l.trim()).filter(l => l.startsWith("|"))
+    .filter(l => !/^[|:\-\s]+$/.test(l))
+    .map(l => l.replace(/^\|/, "").replace(/\|$/, "").split(/(?<!\\)\|/).map(c => c.trim().replace(/\\\|/g, "|")));
+}
+function renderTablePreview() {
+  const rows = parseMdTable($("tblText").value), head = $("tblHead").checked, esc = x => x.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  $("tblPreview").innerHTML = rows.length ? "<table>" + rows.map((r, i) => "<tr>" + r.map(c => (i === 0 && head ? "<th>" : "<td>") + esc(c) + (i === 0 && head ? "</th>" : "</td>")).join("") + "</tr>").join("") + "</table>"
+    : '<div style="padding:8px;color:var(--muted)">표가 비었습니다</div>';
+  $("tblInfo").textContent = rows.length ? rows.length + "행 × " + Math.max(...rows.map(r => r.length)) + "열" : "";
+}
+function tableDraft() {
+  const segs = tableSegs(tblBox), md = buildTable(segs, +$("tblGap").value);
+  $("tblText").value = $("tblHead").checked ? md : md.split("\n").filter((l, i) => i !== 1).join("\n");
+  // 본문에 한 줄로 들어가 있던 표 글 찾기: 문단 글자의 80% 이상이 표 칸 글이면 표 글로 봄
+  const keys = segs.map(s => sq(s.text)).filter(k => k.length >= 2);
+  tblDel = [];
+  ed.value.split("\n").forEach((line, li) => {
+    const t = sq(line); if (t.length < 4 || /^\s*[|#!<]/.test(line)) return;
+    const hit = new Array(t.length).fill(false);
+    for (const k of keys) { let j = t.indexOf(k); while (j >= 0) { for (let x = j; x < j + k.length; x++) hit[x] = true; j = t.indexOf(k, j + 1); } }
+    if (hit.filter(Boolean).length >= 0.8 * t.length) tblDel.push(li);
+  });
+  $("tblRemove").disabled = !tblDel.length; $("tblRemove").checked = tblDel.length > 0;
+  $("tblRemoveInfo").textContent = tblDel.length ? "본문에 줄글로 들어가 있던 표 글 " + tblDel.length + "문단을 지우고 그 자리에 표를 넣기"
+    : "본문에서 같은 글을 찾지 못했습니다 (표는 커서가 있는 문단 아래에 넣고, 줄글은 직접 지우세요)";
+  renderTablePreview();
+  if (!segs.length) $("tblInfo").textContent = "고른 영역에 글이 없습니다";
+  else if (!(rowsData[page].boxes || []).length) $("tblInfo").textContent += " · 이 책은 칸 정보가 없어 줄 단위로 나눴습니다 (3_OCR 를 다시 실행하면 칸별로 나눔)";
+}
+function openTableDialog(box) { tblBox = box; tableDraft(); $("tblDlg").showModal(); $("tblText").focus(); }
+$("tblGap").onchange = tableDraft;
+$("tblHead").onchange = tableDraft;
+$("tblText").addEventListener("input", renderTablePreview);
+$("tblCancel").onclick = () => { $("tblDlg").close(); sel.hidden = true; pendingBox = null; };
+$("tblOk").onclick = () => {
+  const md = $("tblText").value.trim(); if (!md) return;
+  $("tblDlg").close(); sel.hidden = true; pendingBox = null;
+  if ($("tblRemove").checked && tblDel.length) {  // 표 글 문단을 지우고 첫 자리에 표
+    const lines = ed.value.split("\n"), first = tblDel[0];
+    const out = lines.map((l, i) => i === first ? md : tblDel.includes(i) ? null : l).filter(l => l !== null);
+    const v = out.join("\n").replace(/\n{3,}/g, "\n\n");
+    setText(v, v.indexOf(md)); setStatus("표를 넣었습니다 (지운 문단 " + tblDel.length + "개, Ctrl+Z 로 되돌리기)");
+  } else {
+    const v = ed.value, b = ed.selectionEnd; let at = v.indexOf("\n\n", b); if (at < 0) at = v.length;
+    const nv = v.slice(0, at) + "\n\n" + md + "\n" + v.slice(at);
+    setText(nv.replace(/\n{3,}/g, "\n\n"), at + 2); setStatus("표를 넣었습니다");
+  }
+};
+
 // ---- 저장 -------------------------------------------------------------
 function markDirty() { dirty = true; setStatus("수정됨…"); clearTimeout(saveTimer); saveTimer = setTimeout(save, 1500); }
 function onEdited() { syncFull(); highlight(); markDirty(); }
@@ -569,8 +672,15 @@ $("prev").onclick = () => showPage(page - 1, { moveText: true });
 $("next").onclick = () => showPage(page + 1, { moveText: true });
 $("pageNo").addEventListener("change", e => showPage(+e.target.value || 1, { moveText: true }));
 $("toggleRows").onclick = e => { showRows = !showRows; e.target.classList.toggle("on", showRows); drawOverlay(); };
-$("cropMode").onclick = e => { cropOn = !cropOn; e.target.classList.toggle("on", cropOn); wrap.classList.toggle("crop", cropOn);
-  $("imgHint").textContent = cropOn ? "그림으로 넣을 영역을 끌어 지정하세요 (점선 영역은 누르면 바로 선택)" : ""; sel.hidden = true; };
+function setMode(m) {  // 그림 넣기 / 표 넣기 모드 (둘 중 하나만)
+  cropOn = m === "crop" && !cropOn; tableOn = m === "table" && !tableOn;
+  $("cropMode").classList.toggle("on", cropOn); $("tableMode").classList.toggle("on", tableOn);
+  wrap.classList.toggle("crop", cropOn || tableOn); sel.hidden = true;
+  $("imgHint").textContent = cropOn ? "그림으로 넣을 영역을 끌어 지정하세요 (점선 영역은 누르면 바로 선택)"
+    : tableOn ? "표 영역을 끌어 지정하세요 (표 제목·설명은 빼고 칸만)" : "";
+}
+$("cropMode").onclick = () => setMode("crop");
+$("tableMode").onclick = () => setMode("table");
 $("zoomIn").onclick = () => zoomBy(1.25);
 $("zoomOut").onclick = () => zoomBy(1 / 1.25);
 $("zoomFit").onclick = () => { zoom = 0; applyZoom(); };
@@ -754,6 +864,7 @@ window.addEventListener("keydown", e => {
   else if (e.altKey && e.key.toLowerCase() === "l") { e.preventDefault(); $("nextLow").click(); }
   else if (e.altKey && e.key.toLowerCase() === "s") { e.preventDefault(); $("nextSug").click(); }
   else if (e.altKey && e.key.toLowerCase() === "g") { e.preventDefault(); $("cropMode").click(); }
+  else if (e.altKey && e.key.toLowerCase() === "t") { e.preventDefault(); $("tableMode").click(); }
 });
 
 // ---- 시작 --------------------------------------------------------------

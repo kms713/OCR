@@ -42,8 +42,11 @@ PAGES = [
      ("p", "2021년 1주당 113달러였던 주식이 98%"),
      ("p", "떨어졌습니다. 이 줄은 신뢰도가 낮습니다.")],
     [("h", "마무리"),
-     ("p", "마지막 쪽입니다. 내보내기를 하면 Word 파일과"),
-     ("p", "AI용 글이 만들어집니다."),
+     ("p", "마지막 쪽입니다. 아래 표는 '표 넣기 모드'로"),
+     ("p", "칸을 나눠 넣어 보세요."),
+     ("table", [["구분", "클릭 시대", "AI 검색 시대"],
+                ["성과 목표", "클릭률(CTR)", "첫 답변 언급률,|출처 카드 수"],
+                ["최적화 단위", "페이지 전체", "문장과 문단"]]),
      ("n", "● 출처: 예시 자료, 2026.")],
 ]
 
@@ -58,7 +61,8 @@ MD_PAGES = [
      "> 주: 그림 1. 샘플 주가 그래프 (가상 자료)",
      "2021년 1 주당 113달러였던 주식이 98 %떨어졌습니다. 이 줄은 신뢰[?]도가 낮습니다."],
     ["## 마무리",
-     "마지막 쪽입니다. 내보내기를 하면 Word 파일과 AI용 글이 만들어집니다.",
+     "마지막 쪽입니다. 아래 표는 '표 넣기 모드'로 칸을 나눠 넣어 보세요.",
+     "구분 클릭 시대 AI 검색 시대 성과 목표 클릭률(CTR) 첫 답변 언급률, 출처 카드 수 최적화 단위 페이지 전체 문장과 문단",
      "● 출처: 예시 자료, 2026."],
 ]
 
@@ -91,9 +95,35 @@ def draw_page(items) -> tuple:
 
     im = Image.new("RGB", (W, H), "white")
     d = ImageDraw.Draw(im)
-    rows, pics = [], []
+    rows, pics, boxes = [], [], []
     y = 90
     for kind, text in items:
+        if kind == "table":  # 가로선만 있는 표. 칸마다 글상자, 한 줄 전체는 OCR 처럼 줄 하나로
+            f = font(22)
+            xs = [LEFT, LEFT + 150, LEFT + 330, RIGHT]
+            d.line([(LEFT, y), (RIGHT, y)], fill=(90, 90, 90), width=2)
+            for r, cells in enumerate(text):
+                y0 = y + 10
+                parts = [c.split("|") for c in cells]
+                nl = max(len(p) for p in parts)
+                line_boxes = []
+                for c, lines in enumerate(parts):
+                    yy = y0 + (nl - len(lines)) * 15  # 줄 수가 적은 칸은 세로 가운데
+                    for t in lines:
+                        bx = d.textbbox((xs[c] + 10, yy), t, font=f)
+                        d.text((xs[c] + 10, yy), t, fill=(30, 30, 30), font=f)
+                        b = [bx[0] - 2, bx[1] - 3, bx[2] + 2, bx[3] + 3]
+                        boxes.append({"text": t, "box": b, "score": 0.97})
+                        line_boxes.append((t, b))
+                        yy += 30
+                # OCR 줄(rows): 세로로 겹치는 칸 글을 한 줄로 묶은 것처럼
+                line_boxes.sort(key=lambda tb: (tb[1][1], tb[1][0]))
+                for t, b in line_boxes:
+                    rows.append({"text": t, "box": b, "score": 0.97})
+                y = y0 + nl * 30 + 10
+                d.line([(LEFT, y), (RIGHT, y)], fill=(160, 160, 160), width=1)
+            y += 18
+            continue
         if kind == "pic":
             box = [LEFT + 40, y, RIGHT - 40, y + 240]
             d.rectangle(box, outline=(120, 120, 120), width=2)
@@ -108,9 +138,10 @@ def draw_page(items) -> tuple:
         d.text((LEFT, y), text, fill=(30, 30, 30) if kind != "cap" else (90, 90, 90), font=f)
         score = 0.55 if "신뢰도가 낮습니다" in text else 0.97
         rows.append({"text": text, "box": [x0 - 2, y0 - 3, x1 + 2, y1 + 3], "score": score})
+        boxes.append({"text": text, "box": [x0 - 2, y0 - 3, x1 + 2, y1 + 3], "score": score})
         y = y1 + (30 if kind == "h" else 16)
     d.text((RIGHT - 40, H - 60), str(len(rows)), fill=(150, 150, 150), font=font(18))  # 쪽 번호 흉내
-    return im, rows, pics
+    return im, rows, pics, boxes
 
 
 def para_id(text: str) -> str:  # ebook_suggest.para_id 와 같게
@@ -132,9 +163,9 @@ def main() -> int:
     (out / "cache").mkdir(parents=True)
     book.mkdir(parents=True)
     for i, items in enumerate(PAGES, start=1):
-        im, rows, pics = draw_page(items)
+        im, rows, pics, boxes = draw_page(items)
         im.save(book / f"page_{i:04d}.png")
-        cache = {"width": W, "height": H, "rows": rows, "pictures": pics}
+        cache = {"width": W, "height": H, "rows": rows, "pictures": pics, "boxes": boxes}
         (out / "cache" / f"page_{i:04d}.json").write_bytes(json.dumps(cache, ensure_ascii=False).encode("utf-8"))
     md = [f"# {NAME}", ""]
     for i, paras in enumerate(MD_PAGES, start=1):

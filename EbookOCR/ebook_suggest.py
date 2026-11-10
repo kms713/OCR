@@ -68,7 +68,7 @@ def read_paragraphs(md: str) -> list[str]:
     out, seen = [], set()
     for raw in md.replace("\r\n", "\n").replace(SOFT, "").split("\n"):
         t = raw.strip()
-        if not t or t.startswith("#") or t.startswith(">") or PAGE_MARK.match(t) or FIGURE.match(t):
+        if not t or t.startswith(("#", ">", "|")) or PAGE_MARK.match(t) or FIGURE.match(t):  # | : 표 줄은 보내지 않음
             continue
         if len(re.findall(r"[가-힣A-Za-z]", t)) < 4 or t in seen:
             continue

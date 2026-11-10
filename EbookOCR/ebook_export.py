@@ -89,11 +89,14 @@ NO_ALT = "(설명 없음)"
 
 @dataclass
 class Block:
-    kind: str  # title | heading | note | figure | para | page
+    kind: str  # title | heading | note | figure | para | page | table
     text: str = ""
     level: int = 1
     page: int = 0
     src: str = ""  # figure 파일 경로
+    rows: list = field(default_factory=list)  # table: [[칸 글, ...], ...]
+    head: bool = False  # table: 첫 행이 머리 행 (둘째 줄이 |---| 구분선)
+    closed: bool = True  # table: 읽는 중 표가 끝났는지 (빈 줄·다른 줄이 오면 끝)
 
 
 @dataclass
@@ -101,6 +104,14 @@ class Parsed:
     blocks: list[Block] = field(default_factory=list)
     missing_alt: list[int] = field(default_factory=list)  # 설명 없는 그림이 있는 쪽
     missing_file: list[str] = field(default_factory=list)
+
+
+TABLE_LINE = re.compile(r"^\|.*\|$")
+TABLE_SEP = re.compile(r"^\|[\s:|-]+\|$")
+
+
+def table_cells(line: str) -> list[str]:
+    return [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", line.strip()[1:-1])]
 
 
 def parse_markdown(text: str, base: Path) -> Parsed:
@@ -111,7 +122,23 @@ def parse_markdown(text: str, base: Path) -> Parsed:
     for raw in text.replace("\r\n", "\n").replace(SOFT, "").split("\n"):
         line = raw.rstrip()
         if not line.strip():
+            if out.blocks and out.blocks[-1].kind == "table":
+                out.blocks[-1].closed = True  # 빈 줄 = 표 끝
             continue
+        if TABLE_LINE.match(line.strip()):  # 표 줄: 이어진 표 줄을 한 표로 모은다
+            t = line.strip()
+            last = out.blocks[-1] if out.blocks else None
+            if last is not None and last.kind == "table" and not last.closed:
+                if TABLE_SEP.match(t) and len(last.rows) == 1:
+                    last.head = True
+                elif not TABLE_SEP.match(t):
+                    last.rows.append(table_cells(t))
+            elif not TABLE_SEP.match(t):
+                out.blocks.append(Block("table", page=page, rows=[table_cells(t)], closed=False))
+            join_next = False
+            continue
+        if out.blocks and out.blocks[-1].kind == "table":
+            out.blocks[-1].closed = True  # 빈 줄이 아닌 다른 줄이 오면 표 끝
         m = PAGE_MARK.match(line.strip())
         if m:
             page = int(m.group(1))
@@ -172,6 +199,13 @@ def build_ai_markdown(parsed: Parsed, title: str, page_marks: bool) -> str:
         elif b.kind == "figure":
             desc = b.text or (f"(설명 없음 — 원본 {b.page}쪽)" if b.page else NO_ALT)
             lines += [f"> [그림] {desc}", ""]
+        elif b.kind == "table":
+            n = max(len(r) for r in b.rows)
+            cells = [[ai_inline(c).replace("|", "\\|") for c in r] + [""] * (n - len(r)) for r in b.rows]
+            tl = ["| " + " | ".join(r) + " |" for r in cells]
+            if b.head:
+                tl.insert(1, "|" + "|".join(["---"] * n) + "|")
+            lines += tl + [""]
         elif b.kind == "page":
             if page_marks:
                 lines += [f"[p.{b.page}]", ""]
@@ -272,6 +306,19 @@ def build_docx(parsed: Parsed, title: str, base: Path, path: Path, captions: boo
                 r.font.color.rgb = RGBColor(0x66, 0x70, 0x85)
         elif b.kind == "para":
             add_inline(doc.add_paragraph(), b.text)
+        elif b.kind == "table":
+            n = max(len(r) for r in b.rows)
+            t = doc.add_table(rows=len(b.rows), cols=n)
+            t.style = "Table Grid"
+            for i, r in enumerate(b.rows):
+                for j in range(n):
+                    c = t.cell(i, j)
+                    para = c.paragraphs[0]
+                    add_inline(para, r[j] if j < len(r) else "", Pt(9.5))
+                    if i == 0 and b.head:
+                        for run in para.runs:
+                            run.bold = True
+            doc.add_paragraph()  # 표 다음 문단과 띄우기
         # page 표시는 완성본에 넣지 않음
     path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(path))

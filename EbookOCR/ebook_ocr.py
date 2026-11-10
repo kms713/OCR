@@ -35,7 +35,7 @@ import json
 import re
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -83,6 +83,7 @@ class Page:
     height: int
     rows: list[Row]
     pictures: list[list[int]]  # 그림으로 판정한 영역
+    boxes: list[Row] = field(default_factory=list)  # 줄로 묶기 전 글상자 하나하나 (편집기 '표 넣기'가 칸을 나눌 때 씀)
 
 
 # ----------------------------------------------------------------------------
@@ -149,7 +150,8 @@ def ocr_image(ocr, img: np.ndarray, no: int, name: str, args) -> Page:
     pictures = [] if args.keep_pictures else picture_regions(img, [it.box for it in items], args.picture_fill)
     items = [it for it in items if not any(inside(it.box, p) for p in pictures)]
     h, w = img.shape[:2]
-    return Page(no, name, w, h, group_rows(items), pictures)
+    boxes = [Row(it.text.strip(), [int(v) for v in it.box], float(it.score)) for it in items if it.text.strip()]
+    return Page(no, name, w, h, group_rows(items), pictures, boxes)
 
 
 def page_to_json(p: Page) -> dict:
@@ -159,7 +161,8 @@ def page_to_json(p: Page) -> dict:
 
 
 def page_from_json(d: dict) -> Page:
-    return Page(d["no"], d["name"], d["width"], d["height"], [Row(**r) for r in d["rows"]], d["pictures"])
+    return Page(d["no"], d["name"], d["width"], d["height"], [Row(**r) for r in d["rows"]], d["pictures"],
+                [Row(**r) for r in d.get("boxes", [])])
 
 
 # ----------------------------------------------------------------------------
@@ -450,7 +453,8 @@ def main(argv=None) -> int:
         cf = cache / f"{f.stem}.json"
         if not args.redo and cf.is_file() and cf.stat().st_mtime >= f.stat().st_mtime:
             d = json.loads(cf.read_text(encoding="utf-8"))
-            if d.get("version") == CACHE_VERSION and d.get("min_score") == args.min_score \
+            # 'boxes'(글상자별 위치)가 없는 예전 캐시는 다시 인식 (글자 결과는 같고, 표 넣기에 필요)
+            if d.get("version") == CACHE_VERSION and "boxes" in d and d.get("min_score") == args.min_score \
                     and d.get("keep_pictures") == args.keep_pictures and d.get("picture_fill") == args.picture_fill:
                 p = page_from_json(d)
                 p.no = no
