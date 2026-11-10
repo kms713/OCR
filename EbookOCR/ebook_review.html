@@ -64,7 +64,7 @@
   #hl .m-h2 { color:var(--md-h2); }
   #hl .m-h3 { color:var(--md-h3); }
   #hl .m-i { color:var(--md-b); }
-  #hl .m-u { color:var(--md-b); text-decoration:underline; }
+  #hl .m-u { color:var(--md-b); text-decoration:underline; }  /* 굵기·기울기는 바꾸지 않음 (줄바꿈 위치가 입력칸과 같아야 함) */
   .fmt { display:flex; flex-wrap:wrap; gap:4px; align-items:center; padding:4px 10px; border-bottom:1px solid var(--line); }
   .fmt button { padding:2px 9px; font-size:13px; }
   .fmt .sep { margin:0 2px; }
@@ -237,14 +237,34 @@ function gotoGlobal(k, len) {  // 책 전체 글의 위치로 이동 (필요하�
 
 // ---- 마크다운 색칠 ------------------------------------------------------
 const escH = x => x.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-function hlInline(t) {
+const FMT = [  // 글 속 서식 (겹쳐도 됨). 같은 자리에서 시작하면 앞의 것(긴 표시)이 우선. ebook_export.py 의 FMT_PATTERNS 와 같게
+  [/\*\*\*(?!\s)(.+?)(?<!\s)\*\*\*/g, "bi", "***", "***"],
+  [/\*\*(?!\s)(.+?)(?<!\s)\*\*/g, "b", "**", "**"],
+  [/<u>(.+?)<\/u>/g, "u", "<u>", "</u>"],
+  [/(?<![*A-Za-z0-9])\*(?![\s*])(.+?)(?<![\s*])\*(?![*A-Za-z0-9])/g, "i", "*", "*"],
+];
+function plainHl(t) {  // 서식 표시가 없는 글: 그림·주석·[?] 색칠
   return escH(t)
     .replace(/!\[([^\]]*)\]\(([^)]*)\)/g, '<span class="m-img">![<span class="m-alt">$1</span>]($2)</span>')
-    .replace(/\*\*([^*]+)\*\*/g, '<span class="m-mk">**</span><span class="m-b">$1</span><span class="m-mk">**</span>')
-    .replace(/(^|[^*\w])\*(?!\s)([^*\n]+?)\*(?![*\w])/g, '$1<span class="m-mk">*</span><span class="m-i">$2</span><span class="m-mk">*</span>')
-    .replace(/&lt;u&gt;(.+?)&lt;\/u&gt;/g, '<span class="m-mk">&lt;u&gt;</span><span class="m-u">$1</span><span class="m-mk">&lt;/u&gt;</span>')
     .replace(/&lt;!--.*?--&gt;/g, m => '<span class="m-cm">' + m + "</span>")
     .replace(/\[\?\]/g, '<span class="m-q">[?]</span>');
+}
+function hlInline(t, fmt) {  // 서식 표시는 흐리게, 안의 글은 서식마다 색 (겹치면 겹쳐서)
+  fmt = fmt || ""; let out = "", k = 0;
+  const wrap = x => fmt ? '<span class="' + [...fmt].map(c => "m-" + c).join(" ") + '">' + x + "</span>" : x;
+  while (k < t.length) {
+    let best = null;
+    for (const [rx, f, open, close] of FMT) {
+      rx.lastIndex = k; const m = rx.exec(t);
+      if (m && (!best || m.index < best.m.index)) best = { m, f, open, close };
+    }
+    if (!best) break;
+    const { m, f, open, close } = best;
+    if (m.index > k) out += wrap(plainHl(t.slice(k, m.index)));
+    out += '<span class="m-mk">' + escH(open) + "</span>" + hlInline(m[1], [...new Set(fmt + f)].sort().join("")) + '<span class="m-mk">' + escH(close) + "</span>";
+    k = m.index + m[0].length;
+  }
+  return out + (k < t.length ? wrap(plainHl(t.slice(k))) : "");
 }
 function hlLine(line) {
   let m, out;
@@ -438,17 +458,31 @@ function setText(v, a, b) {  // 글 칸 내용을 바꾸고 선택 위치를 지
   if (!ok || ed.value !== v) ed.value = v;  // 편집 명령이 안 되는 브라우저
   ed.scrollTop = top; ed.setSelectionRange(a, b === undefined ? a : b); onEdited();
 }
-function wrapSel(pre, post) {  // 고른 글을 감싸거나, 이미 감싸져 있으면 풀기
+function toggleFmt(kind) {  // kind: b 굵게, i 기울임, u 밑줄. 고른 글을 둘러싼 서식 표시를 모두 읽고, 하나를 켜고/끈 뒤 같은 순서로 다시 씀
   if (ed.readOnly) return;
   const v = ed.value; let a = ed.selectionStart, b = ed.selectionEnd;
   if (a === b) { setStatus("먼저 글을 고르세요", true); return; }
   while (a < b && /\s/.test(v[a])) a++; while (b > a && /\s/.test(v[b - 1])) b--;  // 앞뒤 빈칸은 밖에
-  const sel = v.slice(a, b);
-  if (sel.startsWith(pre) && sel.endsWith(post) && sel.length >= pre.length + post.length)
-    return setText(v.slice(0, a) + sel.slice(pre.length, sel.length - post.length) + v.slice(b), a, b - pre.length - post.length);
-  if (v.slice(a - pre.length, a) === pre && v.slice(b, b + post.length) === post)
-    return setText(v.slice(0, a - pre.length) + sel + v.slice(b + post.length), a - pre.length, b - pre.length);
-  setText(v.slice(0, a) + pre + sel + post + v.slice(b), a + pre.length, b + pre.length);
+  let sel = v.slice(a, b);
+  // 고른 글 자체가 표시를 품고 있으면(예: **굵게** 를 통째로 고름) 안쪽만 고른 것으로 본다
+  for (;;) {
+    const m = /^(<u>|\*)([\s\S]*)(<\/u>|\*)$/.exec(sel);
+    if (!m || (m[1] === "<u>") !== (m[3] === "</u>") || !m[2]) break;
+    a += m[1].length; b -= m[3].length; sel = m[2];
+  }
+  const L = [], R = []; let x = a, y = b;  // 바깥쪽 표시들 (L: 안쪽이 끝, R: 안쪽이 처음)
+  for (;;) { if (v.slice(x - 3, x) === "<u>") { L.unshift("u"); x -= 3; } else if (v[x - 1] === "*") { L.unshift("*"); x--; } else break; }
+  for (;;) { if (v.slice(y, y + 4) === "</u>") { R.push("u"); y += 4; } else if (v[y] === "*") { R.push("*"); y++; } else break; }
+  let n = 0; while (n < L.length && n < R.length && L[L.length - 1 - n] === R[n]) n++;  // 짝이 맞는 것만
+  const used = L.slice(L.length - n);
+  let u = used.includes("u"), stars = used.filter(t => t === "*").length;
+  let bo = stars >= 2, it = stars % 2 === 1;
+  if (kind === "b") bo = !bo; else if (kind === "i") it = !it; else u = !u;
+  const st = bo && it ? "***" : bo ? "**" : it ? "*" : "";
+  const open = (u ? "<u>" : "") + st, close = st + (u ? "</u>" : "");
+  const left = a - used.reduce((s, t) => s + (t === "u" ? 3 : 1), 0);
+  const right = b + R.slice(0, n).reduce((s, t) => s + (t === "u" ? 4 : 1), 0);
+  setText(v.slice(0, left) + open + sel + close + v.slice(right), left + open.length, left + open.length + sel.length);
 }
 function lineAt(v, k) { const a = v.lastIndexOf("\n", k - 1) + 1; let b = v.indexOf("\n", k); if (b < 0) b = v.length; return [a, b]; }
 function setLinePrefix(prefix) {  // 커서 줄의 앞 표시(##, > 주: 등)를 바꾼다
@@ -491,9 +525,9 @@ function moveBlock(dir) {  // 커서가 있는 문단(빈 줄로 나뉜 덩어�
   const v = blocks.join("\n\n"); let k = 0; for (let n = 0; n < j; n++) k += blocks[n].length + 2;
   setText(v, k);  // 커서만 옮긴 문단 앞에 (선택해 두면 다음 서식 버튼이 문단 전체에 걸림)
 }
-$("fB").onclick = () => wrapSel("**", "**");
-$("fI").onclick = () => wrapSel("*", "*");
-$("fU").onclick = () => wrapSel("<u>", "</u>");
+$("fB").onclick = () => toggleFmt("b");
+$("fI").onclick = () => toggleFmt("i");
+$("fU").onclick = () => toggleFmt("u");
 $("fH1").onclick = () => setLinePrefix("## ");
 $("fH2").onclick = () => setLinePrefix("### ");
 $("fH3").onclick = () => setLinePrefix("#### ");

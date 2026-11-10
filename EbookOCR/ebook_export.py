@@ -33,26 +33,35 @@ from pathlib import Path
 PAGE_MARK = re.compile(r"^<!--\s*p\.(\d+)\s*-->\s*$")
 FIGURE = re.compile(r"^!\[([^\]]*)\]\(([^)\s]+)\)\s*$")
 HEADING = re.compile(r"^(#{1,4})\s+(.*\S)\s*$")  # # 제목, ## 대주제, ### 중주제, #### 소주제
-# 글 속 서식: **굵게**, *기울임*, <u>밑줄</u> (편집기 버튼이 쓰는 형식)
-# 기울임 *…* 은 앞뒤가 영문·숫자일 때만 제외 (2*3*4 같은 곱셈). 한글 조사가 바로 붙어도(*집단 지성*의) 인식
-INLINE = re.compile(r"\*\*(.+?)\*\*|(?<![*A-Za-z0-9])\*(?!\s)(.+?)(?<!\s)\*(?![*A-Za-z0-9])|<u>(.+?)</u>")
+# 글 속 서식 (겹쳐도 됨, 순서 상관없음): ***굵게+기울임***, **굵게**, *기울임*, <u>밑줄</u>
+# 기울임 *…* 은 앞뒤가 영문·숫자면 제외 (2*3*4 같은 곱셈). 한글 조사가 바로 붙어도(*집단 지성*의) 인식
+FMT_PATTERNS = [  # (정규식, 붙는 서식). 같은 자리에서 시작하면 앞의 것(긴 표시)이 우선
+    (re.compile(r"\*\*\*(?!\s)(.+?)(?<!\s)\*\*\*"), "bi"),
+    (re.compile(r"\*\*(?!\s)(.+?)(?<!\s)\*\*"), "b"),
+    (re.compile(r"<u>(.+?)</u>"), "u"),
+    (re.compile(r"(?<![*A-Za-z0-9])\*(?![\s*])(.+?)(?<![\s*])\*(?![*A-Za-z0-9])"), "i"),
+]
 
 
-def inline_runs(text: str) -> list[tuple[str, str]]:
-    """'가 **나** <u>다</u>' → [('가 ', ''), ('나', 'b'), (' ', ''), ('다', 'u')]. 서식은 겹치지 않는 한 단계만."""
-    out, k = [], 0
-    for m in INLINE.finditer(text):
+def inline_runs(text: str, fmt: str = "") -> list[tuple[str, str]]:
+    """'가 **나** <u>*다*</u>' → [('가 ', ''), ('나', 'b'), (' ', ''), ('다', 'ui')]. 서식은 겹쳐서 쌓인다."""
+    out: list[tuple[str, str]] = []
+    k = 0
+    while k < len(text):
+        best = None
+        for rx, f in FMT_PATTERNS:
+            m = rx.search(text, k)
+            if m and (best is None or m.start() < best[0].start()):
+                best = (m, f)
+        if best is None:
+            break
+        m, f = best
         if m.start() > k:
-            out.append((text[k:m.start()], ""))
-        if m.group(1) is not None:
-            out.append((m.group(1), "b"))
-        elif m.group(2) is not None:
-            out.append((m.group(2), "i"))
-        else:
-            out.append((m.group(3), "u"))
+            out.append((text[k:m.start()], fmt))
+        out += inline_runs(m.group(1), "".join(sorted(set(fmt + f))))
         k = m.end()
     if k < len(text):
-        out.append((text[k:], ""))
+        out.append((text[k:], fmt))
     return out
 
 
@@ -65,9 +74,9 @@ def add_inline(p, text: str, size=None, color=None, italic=None):
     """Word 문단에 서식 있는 글 넣기."""
     for t, f in inline_runs(text):
         r = p.add_run(t)
-        r.bold = True if f == "b" else None
-        r.italic = True if f == "i" else italic
-        r.underline = True if f == "u" else None
+        r.bold = True if "b" in f else None
+        r.italic = True if "i" in f else italic
+        r.underline = True if "u" in f else None
         if size:
             r.font.size = size
         if color is not None:
