@@ -6,7 +6,9 @@ if not exist ".venv\Scripts\python.exe" (
     pause
     exit /b 1
 )
-set /p BOOK=책 이름(books 폴더 안의 폴더 이름)을 입력하세요: 
+.venv\Scripts\python.exe bookdir.py --list
+echo.
+set /p BOOK=책 이름(위 목록 중 하나)을 입력하세요: 
 if "%BOOK%"=="" exit /b 1
 .venv\Scripts\python.exe ebook_suggest.py "books\%BOOK%" %*
 pause

@@ -59,7 +59,27 @@ def result_dir(folder: Path, output: str | None, title: str | None = None) -> Pa
     return cpu
 
 
+def list_books() -> int:
+    """bat 에서 책 이름을 묻기 전에: 어느 폴더에서 찾는지와 그 안의 책 목록."""
+    root = books_root() or HERE / "books"
+    print(f"책 폴더: {root}" + ("" if books_root() else "  (기본 위치. 클라우드 폴더를 쓰려면 책폴더_설정.bat)"))
+    if not root.is_dir():
+        print("  [안내] 이 폴더가 없습니다. 클라우드 앱이 켜져 있는지, 책폴더_설정.bat 의 경로가 맞는지 확인하세요."
+              if books_root() else "  (아직 책이 없습니다. 열 책이 없으면 이 창을 닫으세요)")
+        return 0
+    names = sorted(d.name for d in root.iterdir() if d.is_dir() and not d.name.endswith(("_OCR", "_OCR_GPU")))
+    if names:
+        for n in names:
+            done = (root / f"{n}_OCR").is_dir() or (root / f"{n}_OCR_GPU").is_dir()
+            print(f"  · {n}" + ("" if done else "   (아직 OCR 전)"))
+    else:
+        print("  (책이 없습니다. 캡처한 책 폴더를 이 폴더에 넣으세요)")
+    return 0
+
+
 def main() -> int:
+    if "--list" in sys.argv[1:]:
+        return list_books()
     cur = books_root()
     print("지금 책 폴더:", cur if cur else f"{HERE / 'books'} (기본)")
     print("클라우드 동기화 폴더 등 새 경로를 붙여 넣고 Enter (그대로 두려면 그냥 Enter, 기본으로 되돌리려면 - 입력)")
