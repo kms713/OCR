@@ -59,6 +59,7 @@ OCR 이 빠뜨린 문장 끝 마침표(예: "달렸습니다 하지만" → "달
 같은 잘못이 문단 안에 여러 번 있으면 모두 고친다.
 절대 하지 말 것: 문장을 다듬거나 바꿔 쓰기, 요약, 내용 추가·삭제, 숫자·연도·고유명사·영문 변경,
 마침표 외의 기호 추가·변경, 문체 통일.
+서식 기호 **, *, <u>, </u>, <br> 는 마크다운 강조·밑줄·줄바꿈 표시다. 오타가 아니니 지우거나 옮기거나 새로 넣지 말고 그대로 둔다.
 확실하지 않으면 고치지 말고 그대로 둔다.
 입력은 `[번호] 문단` 형식이다. 고친 문단만 JSON 배열로 답한다: [{"id":"번호","text":"고친 문단 전체"}].
 고칠 것이 없으면 [] 만 답한다. JSON 외의 글은 쓰지 않는다.
@@ -98,26 +99,61 @@ def chunk(paras: list[str], max_chars: int) -> list[list[str]]:
 
 
 def numbers(s: str) -> list[str]:
+    s = MARKUP.sub(" ", s) if "MARKUP" in globals() else s
     return re.findall(r"\d+(?:[.,]\d+)*", s)
 
 
 def latin(s: str) -> list[str]:
+    s = MARKUP.sub(" ", s) if "MARKUP" in globals() else s  # <u>, <br> 의 글자는 영문으로 세지 않음
     return re.findall(r"[A-Za-z]+", s)
 
 
-def check_suggestion(orig: str, sug: str, max_change: float) -> tuple[bool, list[str]]:
-    """(채택 여부, 주의 표시). 너무 많이 바뀌면 버리고, 숫자·영문이 바뀌면 주의 표시."""
-    sug = sug.replace(SOFT, "").strip()
+MARKUP = re.compile(r"\*+|</?u>|<br\s*/?>", re.I)  # 서식 기호 (굵게·기울임·밑줄·줄바꿈)
+MARKUP_ONLY = re.compile(r"(?:\s*(?:\*+|</?u>|<br\s*/?>)\s*)+", re.I)
+
+
+def keep_markup(orig: str, sug: str) -> str:
+    """제안에서 서식 기호를 지우거나 새로 넣은 곳만 원문대로 되돌린다 (나머지 수정은 살림).
+    모델이 강조 표시 ** 를 오타로 보고 지우는 경우가 있어서."""
+    if MARKUP.findall(orig) == MARKUP.findall(sug):
+        return sug
+    out = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, orig, sug, autojunk=False).get_opcodes():
+        a, b = orig[i1:i2], sug[j1:j2]
+        if tag == "equal":
+            out.append(a)
+        elif tag == "delete":
+            out.append(a if MARKUP.search(a) else "")  # 서식 기호를 지운 곳은 되살림
+        elif tag == "insert":
+            out.append("" if MARKUP_ONLY.fullmatch(b) else MARKUP.sub("", b))  # 새로 넣은 서식 기호는 뺌
+        else:  # replace: 원문 쪽 서식 기호는 남기고 글자만 제안대로
+            if MARKUP_ONLY.fullmatch(a):  # 서식 기호만 있던 자리: 기호는 남기고, 빈칸이 아닌 글이 들어왔으면 그 글도
+                out.append(a + ("" if not b.strip() else MARKUP.sub("", b)))
+            elif MARKUP.search(a):
+                lead = re.match(r"^(?:\*+|</?u>|<br\s*/?>)*", a, re.I).group(0)
+                rest = a[len(lead):]
+                tail = re.search(r"(?:\*+|</?u>|<br\s*/?>)*$", rest, re.I).group(0)
+                out.append(lead + MARKUP.sub("", b) + tail)
+            else:
+                out.append(MARKUP.sub("", b))
+    return "".join(out)
+
+
+def check_suggestion(orig: str, sug: str, max_change: float) -> tuple[bool, list[str], str]:
+    """(채택 여부, 주의 표시, 다듬은 제안). 서식 기호는 원문대로 두고, 너무 많이 바뀌면 버리고, 숫자·영문이 바뀌면 주의 표시."""
+    sug = keep_markup(orig, sug.replace(SOFT, "").strip())
     if not sug or sug == orig:
-        return False, []
+        return False, [], sug
     if 1 - difflib.SequenceMatcher(None, orig, sug, autojunk=False).ratio() > max_change:
-        return False, []
+        return False, [], sug
     flags = []
+    if MARKUP.findall(orig) != MARKUP.findall(sug):
+        flags.append("서식 변경")
     if numbers(orig) != numbers(sug):
         flags.append("숫자 변경")
     if latin(orig) != latin(sug):
         flags.append("영문 변경")
-    return True, flags
+    return True, flags, sug
 
 
 class QuotaDaily(Exception):
@@ -535,9 +571,9 @@ def main(argv=None) -> int:
             orig = ids.get(str(r["id"]).strip("[] "))
             if orig is None:
                 continue
-            ok, flags = check_suggestion(orig, str(r["text"]), args.max_change)
+            ok, flags, sug = check_suggestion(orig, str(r["text"]), args.max_change)
             if ok:
-                store["items"][para_id(orig)] = {"orig": orig, "sug": str(r["text"]).replace(SOFT, "").strip(),
+                store["items"][para_id(orig)] = {"orig": orig, "sug": sug,
                                                   "flags": flags, "status": "new"}
                 n_sug += 1
             else:

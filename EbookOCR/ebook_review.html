@@ -1272,6 +1272,8 @@ $("nextSug").onclick = () => {
 };
 async function loadSuggestions() {
   try { const l = await api("/api/suggestions"); sugMap = new Map(l.map(x => [x.orig, x])); } catch (e) { sugMap = new Map(); }
+  const mk = t => (t.match(/\*+|<\/?u>|<br\s*\/?>/gi) || []).join(" ");  // 서식 기호를 바꾸는 제안은 ⚠ (모델이 ** 를 오타로 보고 지우는 경우)
+  sugMap.forEach(x => { if (mk(x.orig) !== mk(x.sug) && !x.flags.includes("서식 변경")) x.flags = [...x.flags, "서식 변경"]; });
   renderSuggestions();
 }
 
