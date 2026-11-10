@@ -270,8 +270,9 @@ def call_raw_oai(base: str, key: str, model: str, text: str, timeout: int = 90, 
             detail = e.read().decode("utf-8", "replace")
             if e.code in (401, 403):
                 raise RuntimeError(f"키가 맞지 않거나 이 모델을 쓸 권한이 없습니다 ({e.code}): {detail[:300]}")
-            if e.code == 404:
-                raise RuntimeError(f"모델 '{model}' 을 찾지 못했습니다. --list-models 로 쓸 수 있는 이름을 확인하세요.\n  {detail[:200]}")
+            if e.code in (404, 410):  # 410: 서비스가 끝난 모델
+                why = "서비스가 끝났습니다" if e.code == 410 else "을 찾지 못했습니다"
+                raise RuntimeError(f"모델 '{model}' {why}. --list-models 로 쓸 수 있는 이름을 확인하고 --model 로 지정하세요.\n  {detail[:200]}")
             if e.code == 429:
                 if re.search(r"per day|daily|quota|credit", detail, re.I):
                     raise QuotaDaily(detail[:300])
