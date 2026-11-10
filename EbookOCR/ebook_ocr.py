@@ -419,7 +419,8 @@ def main(argv=None) -> int:
     global WRAP_CHAR
     args = parse_args(argv)
     WRAP_CHAR = (args.wrap or ("word" if args.no_spacing else "char")) == "char"
-    folder = Path(args.folder)
+    from bookdir import resolve
+    folder = resolve(args.folder)
     if not folder.is_dir():
         print(f"[오류] 폴더가 없습니다: {folder}")
         return 1
@@ -427,7 +428,7 @@ def main(argv=None) -> int:
     if not files:
         print(f"[오류] 이미지가 없습니다: {folder}")
         return 1
-    out_dir = Path(args.output) if args.output else folder.with_name(folder.name + "_OCR")
+    out_dir = resolve(args.output) if args.output else folder.with_name(folder.name + "_OCR")
     cache = out_dir / "cache"
     cache.mkdir(parents=True, exist_ok=True)
     title = args.title or folder.name

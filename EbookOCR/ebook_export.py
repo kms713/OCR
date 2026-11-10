@@ -273,8 +273,9 @@ def parse_args(argv=None):
 
 def main(argv=None) -> int:
     args = parse_args(argv)
-    folder = Path(args.folder)
-    out_dir = Path(args.output) if args.output else folder.with_name(folder.name + "_OCR")
+    from bookdir import resolve, result_dir
+    folder = resolve(args.folder)
+    out_dir = result_dir(folder, args.output, args.title)
     title = args.title or folder.name
     src = out_dir / f"{title}_교정.md"
     if not src.is_file():

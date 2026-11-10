@@ -3,3 +3,5 @@ __pycache__/
 books/
 test/
 gemini_key.txt
+책폴더.txt
+body.json

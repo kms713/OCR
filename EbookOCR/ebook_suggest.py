@@ -320,8 +320,9 @@ def main(argv=None) -> int:
 
     if not args.folder and not args.check:
         ap.error("책 폴더를 지정하세요 (연결 점검만 할 때는 --check)")
-    folder = Path(args.folder or "books/_")
-    out_dir = Path(args.output) if args.output else folder.with_name(folder.name + "_OCR")
+    from bookdir import resolve, result_dir
+    folder = resolve(args.folder or "books/_")
+    out_dir = result_dir(folder, args.output, args.title)
     title = args.title or folder.name
     src = out_dir / f"{title}_교정.md"
     key = load_key()

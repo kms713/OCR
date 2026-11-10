@@ -289,11 +289,12 @@ def main(argv=None) -> int:
     ap.add_argument("--no-browser", action="store_true", help="브라우저를 자동으로 열지 않음")
     args = ap.parse_args(argv)
 
-    folder = Path(args.folder)
+    from bookdir import resolve, result_dir
+    folder = resolve(args.folder)
     if not folder.is_dir():
         print(f"[오류] 폴더가 없습니다: {folder}")
         return 1
-    out_dir = Path(args.output) if args.output else folder.with_name(folder.name + "_OCR")
+    out_dir = result_dir(folder, args.output, args.title)
     if not out_dir.is_dir():
         print(f"[오류] OCR 결과 폴더가 없습니다: {out_dir}\n  먼저 3_OCR.bat 로 변환하세요.")
         return 1

@@ -569,7 +569,8 @@ def main(argv=None) -> int:
     try:
         adb = Adb(find_adb(args.adb), args.serial)
         print(f"연결: {adb.connect()}  (adb: {adb.exe})")
-        out = Path(args.output)
+        from bookdir import resolve
+        out = resolve(args.output)
         if args.test:
             return run_test(adb, out, args)
         return run_capture(adb, out, args)
