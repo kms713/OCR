@@ -44,7 +44,7 @@ API_BASE = os.environ.get("GEMINI_API_BASE", "https://generativelanguage.googlea
 # OpenAI 형식(chat/completions) 서비스. --service nvidia 는 NVIDIA build, openai 는 --base-url 로 지정 (예: Ollama http://localhost:11434/v1)
 SERVICES = {
     "nvidia": {"base": os.environ.get("NVIDIA_API_BASE", "https://integrate.api.nvidia.com/v1"), "key_file": "nvidia_key.txt",
-               "key_env": "NVIDIA_API_KEY", "model": "meta/llama-3.3-70b-instruct"},
+               "key_env": "NVIDIA_API_KEY", "model": "google/gemma-4-31b-it"},  # 2026-11-10 사용자 키 목록에 있는 다국어 모델
     "openai": {"base": os.environ.get("OPENAI_API_BASE", "http://localhost:11434/v1"), "key_file": "openai_key.txt",
                "key_env": "OPENAI_API_KEY", "model": ""},
 }
