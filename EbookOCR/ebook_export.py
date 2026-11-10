@@ -337,6 +337,30 @@ def build_docx(parsed: Parsed, title: str, base: Path, path: Path, captions: boo
 
 
 # ----------------------------------------------------------------------------
+def split_ai(parsed: Parsed, title: str, level: int, page_marks: bool) -> list[tuple[str, str]]:
+    """AI용 글을 제목(level 1 = ## 대주제, 2 = ### 중주제까지) 단위로 나눈다. [(파일 이름, 내용)].
+    각 파일 맨 위에 책 제목(# …)을 두어 NotebookLM 등에서 어느 책의 어느 장인지 알 수 있게 한다."""
+    groups: list[tuple[str, list[Block]]] = [("앞부분", [])]
+    for b in parsed.blocks:
+        if b.kind == "title":
+            continue
+        if b.kind == "heading" and b.level <= level:
+            groups.append((b.text, [b]))
+        else:
+            groups[-1][1].append(b)
+    out = []
+    n = 0
+    for name, blocks in groups:
+        if not any(b.kind not in ("page",) for b in blocks):
+            continue  # 쪽 표시뿐인 덩어리(제목 앞 빈 부분)는 건너뜀
+        part = Parsed()
+        part.blocks = blocks
+        safe = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", re.sub(r"\*+|</?u>|<br\s*/?>", "", name)).strip()[:40] or "제목없음"
+        out.append((f"{n:02d}_{safe}.md", build_ai_markdown(part, title, page_marks)))
+        n += 1
+    return out
+
+
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description="교정한 글 → 사람용 Word(.docx) + AI용 Markdown")
     ap.add_argument("folder", help="page_0001.png ... 가 들어 있는 폴더 (결과 폴더는 <폴더>_OCR)")
@@ -345,6 +369,8 @@ def parse_args(argv=None):
     ap.add_argument("--only", choices=["docx", "ai"], help="한 가지만 만들기")
     ap.add_argument("--page-marks", action="store_true", help="AI용 글에 [p.N] 쪽 표시를 남김")
     ap.add_argument("--no-caption", action="store_true", help="Word 에 그림 설명 캡션을 넣지 않음")
+    ap.add_argument("--split-level", type=int, default=1, choices=[0, 1, 2, 3],
+                    help="AI용 글을 나눌 제목 단계: 1 = 대주제(##, 기본), 2 = 중주제(###)까지, 3 = 소주제(####)까지, 0 = 나누지 않음")
     return ap.parse_args(argv)
 
 
@@ -366,6 +392,15 @@ def main(argv=None) -> int:
         p = out_dir / f"{title}_AI용.md"
         p.write_bytes(build_ai_markdown(parsed, title, args.page_marks).encode("utf-8"))
         made.append(("AI용 글", p))
+        if args.split_level:
+            d = out_dir / f"{title}_AI용_나눔"
+            d.mkdir(exist_ok=True)
+            for old in d.glob("*.md"):  # 예전에 나눈 파일 지우기 (이 폴더는 내보내기 전용)
+                old.unlink()
+            parts = split_ai(parsed, title, args.split_level, args.page_marks)
+            for name, text in parts:
+                (d / name).write_bytes(text.encode("utf-8"))
+            made.append((f"AI용 나눔 ({len(parts)}개 파일, 제목 단계 {args.split_level})", d))
     if args.only in (None, "docx"):
         try:
             import docx  # noqa: F401

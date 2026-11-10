@@ -38,7 +38,7 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}  # ebook_ocr.py 와 같�
 LOW_SCORE = 0.8  # 이 신뢰도 미만 줄은 '의심 줄'
 MAX_BODY = 20 * 1024 * 1024
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
-EDITOR_VERSION = "2026-11-10.2"  # ebook_review.html 의 EDITOR_VERSION 과 같게 (업데이트 뒤 편집기를 다시 켰는지 확인용)
+EDITOR_VERSION = "2026-11-10.3"  # ebook_review.html 의 EDITOR_VERSION 과 같게 (업데이트 뒤 편집기를 다시 켰는지 확인용)
 
 FIG_LINK = re.compile(r"!\[([^\]\n]*)\]\((figures/[^)\s]+)\)")
 
@@ -69,6 +69,7 @@ class Book:
         self.figures = out_dir / "figures"
         self.suggest = out_dir / f"{title}_제안.json"  # ebook_suggest.py 가 만든 AI 교정 제안
         self.checked_file = out_dir / f"{title}_확인.json"  # 사람이 '확인 완료'한 쪽 (여러 PC 에서 이어서)
+        self.exclude_file = out_dir / f"{title}_제외영역.json"  # 영역 지우기: 다시 OCR 할 때도 빼는 영역 (ebook_ocr 가 읽음)
         self.lock = threading.Lock()
 
     # -- 작업 파일 --------------------------------------------------------
@@ -141,6 +142,29 @@ class Book:
             return self.source.read_bytes().decode("utf-8")
         except OSError:
             return ""
+
+    def row_boxes(self) -> list[dict]:
+        """쪽마다 OCR 줄 글과 위치 (영역 지우기 미리보기용)."""
+        out = []
+        for i in range(1, len(self.files) + 1):
+            d = self.cache_json(i)
+            out.append({"w": d.get("width"), "h": d.get("height"),
+                        "rows": [{"text": r["text"], "box": r["box"]} for r in d.get("rows", [])]})
+        return out
+
+    def add_exclude(self, region: dict) -> int:
+        with self.lock:
+            try:
+                d = json.loads(self.exclude_file.read_bytes().decode("utf-8"))
+            except (OSError, ValueError):
+                d = {"regions": []}
+            box = [min(max(float(v), 0.0), 1.0) for v in region["box"]]
+            d["regions"].append({"box": box, "scope": str(region.get("scope", "all")),
+                                 "from": int(region.get("from", 1)), "to": int(region.get("to", 99999))})
+            tmp = self.exclude_file.with_suffix(".json.tmp")
+            tmp.write_bytes(json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8"))
+            tmp.replace(self.exclude_file)
+            return len(d["regions"])
 
     def row_texts(self) -> list[list[str]]:
         """쪽마다 OCR 줄 글 (점검표·빠진 글 경고용)."""
@@ -270,6 +294,13 @@ def make_handler(book: Book):
                     return self._json(book.checked())
                 if path == "/api/source":
                     return self._json({"md": book.source_md()})
+                if path == "/api/exclude":
+                    try:
+                        return self._json(json.loads(book.exclude_file.read_bytes().decode("utf-8")).get("regions", []))
+                    except (OSError, ValueError):
+                        return self._json([])
+                if path == "/api/rowboxes":
+                    return self._json(book.row_boxes())
                 if path == "/api/rowtexts":
                     return self._json(book.row_texts())
                 if path == "/api/suspects":
@@ -311,6 +342,9 @@ def make_handler(book: Book):
                     req = json.loads(self._body().decode("utf-8"))
                     rel = book.crop(int(req["page"]), [float(v) for v in req["box"]])
                     return self._json({"path": rel})
+                if urlparse(self.path).path == "/api/exclude":
+                    req = json.loads(self._body().decode("utf-8"))
+                    return self._json({"count": book.add_exclude(req)})
                 if urlparse(self.path).path == "/api/checked":
                     req = json.loads(self._body().decode("utf-8"))
                     return self._json(book.set_checked(int(req["page"]), bool(req["done"])))

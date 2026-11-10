@@ -172,6 +172,34 @@ def _norm_key(text: str) -> str:
     return re.sub(r"\s+", "", re.sub(r"\d+", "#", text))
 
 
+def region_applies(reg: dict, no: int) -> bool:
+    sc = reg.get("scope", "all")
+    return (sc == "all" or (sc == "odd" and no % 2 == 1) or (sc == "even" and no % 2 == 0)
+            or (sc in ("range", "page") and reg.get("from", 1) <= no <= reg.get("to", 99999)))
+
+
+def apply_exclusions(pages: list[Page], out_dir: Path, title: str) -> int:
+    """편집기 '영역 지우기'로 저장한 영역(책이름_제외영역.json, 쪽 크기 대비 비율) 안의 줄을 뺀다. 뺀 줄 수."""
+    f = out_dir / f"{title}_제외영역.json"
+    try:
+        regions = json.loads(f.read_bytes().decode("utf-8")).get("regions", [])
+    except (OSError, ValueError):
+        return 0
+    n = 0
+    for p in pages:
+        regs = [r["box"] for r in regions if region_applies(r, p.no)]
+        if not regs:
+            continue
+        def inside(b) -> bool:
+            cx, cy = (b[0] + b[2]) / 2 / p.width, (b[1] + b[3]) / 2 / p.height
+            return any(x0 <= cx <= x1 and y0 <= cy <= y1 for x0, y0, x1, y1 in regs)
+        keep = [r for r in p.rows if not inside(r.box)]
+        n += len(p.rows) - len(keep)
+        p.rows = keep
+        p.boxes = [b for b in p.boxes if not inside(b.box)]
+    return n
+
+
 def strip_headers(pages: list[Page], band: float) -> None:
     """머리말·꼬리말·쪽 번호를 뺀다. 가장자리 줄 = 이미지 위·아래 band 비율 안의 줄, 또는 글이 있는 영역의 맨 위·맨 아래 두 줄
     (캡처에 여백이 있어 꼬리말이 이미지 가장자리에서 떨어져 있는 책). 가장자리 줄 중
@@ -515,6 +543,9 @@ def main(argv=None) -> int:
             f"전체 걸린 시간: {time.monotonic() - started:.1f}초\n", encoding="utf-8")
 
     write_raw(pages, out_dir / f"{title}.txt")
+    n_ex = apply_exclusions(pages, out_dir, title)
+    if n_ex:
+        print(f"제외 영역(편집기 '영역 지우기')의 줄 {n_ex}개를 뺐습니다.")
     if not args.keep_headers:
         strip_headers(pages, args.header_band)
     paras = build_paragraphs(pages)

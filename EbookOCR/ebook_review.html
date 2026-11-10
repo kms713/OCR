@@ -154,6 +154,7 @@
   <button id="cropMode" title="이미지에서 영역을 끌어 그림으로 넣기 (Alt+G)">그림 넣기 모드</button>
   <button id="figs" title="넣은 그림 목록과 설명이 빠진 그림 점검">그림 목록</button>
   <button id="tableMode" title="이미지에서 표 영역을 끌어 지정하면 표 초안을 만들어 넣음 (Alt+T)">표 넣기 모드</button>
+  <button id="eraseMode" title="이미지에서 영역을 끌어 지정하면 그 위치의 글(쪽 번호·꼬리말·로고 등)을 여러 쪽에서 한꺼번에 지움 (Alt+E)">영역 지우기 모드</button>
   <span class="sep"></span>
   <button id="zoomOut" title="축소 (Ctrl+휠)">－</button><button id="zoomText" title="글이 있는 영역을 칸 폭에 맞춤 (기본)">글 맞춤</button><button id="zoomFit" title="쪽 전체를 칸 폭에 맞춤">쪽 전체</button><button id="zoomIn" title="확대 (Ctrl+휠)">＋</button>
   <span class="grow"></span>
@@ -234,6 +235,21 @@
   <h2>내보내기 전 점검표</h2>
   <div id="chkBody" class="chk">계산 중…</div>
   <div class="row"><button id="chkClose">닫기</button></div>
+</dialog>
+
+<dialog id="eraseDlg" class="dlgwide">
+  <h2>영역 지우기 — 이 위치에 있는 글을 지웁니다</h2>
+  <div class="opt" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:13px">적용할 쪽:
+    <label><input type="radio" name="erScope" value="page"> 이 쪽만</label>
+    <label><input type="radio" name="erScope" value="all" checked> 모든 쪽</label>
+    <label><input type="radio" name="erScope" value="odd"> 홀수 번째 쪽(1,3,5…)</label>
+    <label><input type="radio" name="erScope" value="even"> 짝수 번째 쪽(2,4,6…)</label>
+    <label><input type="radio" name="erScope" value="range"> 범위 <input type="number" id="erFrom" min="1" style="width:60px">~<input type="number" id="erTo" min="1" style="width:60px">쪽</label>
+  </div>
+  <label style="display:block;margin-top:6px;font-size:13px"><input type="checkbox" id="erSave" checked> 이 책을 다시 OCR 할 때도 이 영역의 글을 빼기 (책이름_제외영역.json 에 저장)</label>
+  <div id="erInfo" style="margin-top:8px"></div>
+  <div id="erList" style="max-height:42vh;overflow:auto;margin:6px 0;font-size:13px"></div>
+  <div class="row"><button id="erCancel">취소</button><button id="erOk" class="on">지우기</button></div>
 </dialog>
 
 <dialog id="hfDlg" class="dlgwide">
@@ -486,9 +502,9 @@ function showSel(a, b) {
   return [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y)];
 }
 let dragStart = null;
-let tableOn = false;
+let tableOn = false, eraseOn = false;
 overlay.addEventListener("mousedown", ev => {
-  if (!cropOn && !tableOn) return;
+  if (!cropOn && !tableOn && !eraseOn) return;
   ev.preventDefault(); dragStart = natural(ev);
 });
 window.addEventListener("mousemove", ev => { if (dragStart) pendingBox = showSel(dragStart, natural(ev)); });
@@ -496,7 +512,7 @@ window.addEventListener("mouseup", ev => {
   if (!dragStart) return;
   const box = showSel(dragStart, natural(ev)); dragStart = null;
   if (box[2] - box[0] < 12 || box[3] - box[1] < 12) { sel.hidden = true; pendingBox = null; return; }
-  pendingBox = box; if (tableOn) openTableDialog(box); else openFigDialog();
+  pendingBox = box; if (tableOn) openTableDialog(box); else if (eraseOn) openEraseDialog(box); else openFigDialog();
 });
 overlay.addEventListener("click", ev => {
   const t = ev.target;
@@ -506,7 +522,7 @@ overlay.addEventListener("click", ev => {
     pendingBox = showSel({ fx: b[0] / W, fy: b[1] / H, x: b[0], y: b[1] }, { fx: b[2] / W, fy: b[3] / H, x: b[2], y: b[3] });
     openFigDialog(); return;
   }
-  if (!cropOn && !tableOn && t.classList.contains("rbox")) gotoRow(+t.dataset.idx);
+  if (!cropOn && !tableOn && !eraseOn && t.classList.contains("rbox")) gotoRow(+t.dataset.idx);
 });
 function openFigDialog() {
   $("thumb").src = ""; $("figAlt").value = "";
@@ -767,14 +783,25 @@ function syncImageToCaret() {
 let srcGrams = null, curGrams = null, missRows = new Set(), missT = null;
 function grams(t, n) { const g = new Set(); for (let i = 0; i + n <= t.length; i++) g.add(t.slice(i, i + n)); return g; }
 function presentIn(text, set) { const g = grams(sq(text), 5); if (g.size < 2) return true; let k = 0; g.forEach(x => { if (set.has(x)) k++; }); return k >= 0.6 * g.size; }
-function missingOf(no, rowsTexts) {  // 그 쪽에서 빠진 줄 번호들
+let excludeRegions = [];
+const FOOTER_LIKE = /^\d{1,4}\s*[|│ㅣ·\-–—]?\s*\S.{0,40}$|^.{0,40}\S\s*[|│ㅣ·\-–—]?\s*\d{1,4}$|^\s*\d{1,4}\s*$/;
+function regionOn(r, no) { const sc = r.scope; return sc === "all" || (sc === "odd" && no % 2 === 1) || (sc === "even" && no % 2 === 0) || ((sc === "range" || sc === "page") && no >= r.from && no <= r.to); }
+function missingOf(no, rows, w, h) {  // 그 쪽에서 빠진 줄 번호들. rows: [{text, box}] 또는 글 배열
   if (!srcGrams || !curGrams) return [];
-  const out = []; (rowsTexts || []).forEach((t, i) => { if (presentIn(t, srcGrams) && !presentIn(t, curGrams)) out.push(i); }); return out;
+  const regs = excludeRegions.filter(r => regionOn(r, no)).map(r => r.box), out = [];
+  (rows || []).forEach((row, i) => {
+    const t = typeof row === "string" ? row : row.text;
+    if ((i === 0 || i === rows.length - 1) && FOOTER_LIKE.test(t.trim())) return;  // 맨 위·아래의 쪽 번호 붙은 줄: 일부러 지운 머리말·꼬리말일 가능성
+    if (row.box && w && regs.some(b => { const cx = (row.box[0] + row.box[2]) / 2 / w, cy = (row.box[1] + row.box[3]) / 2 / h; return cx >= b[0] && cx <= b[2] && cy >= b[1] && cy <= b[3]; })) return;  // 영역 지우기로 뺀 곳
+    if (presentIn(t, srcGrams) && !presentIn(t, curGrams)) out.push(i);
+  });
+  return out;
 }
 function updateMissing() {
   curGrams = grams(sq(full), 5);
   const rows = (rowsData[page] && rowsData[page].rows) || [];
-  missRows = new Set(missingOf(page, rows.map(r => r.text)));
+  const d = rowsData[page] || {};
+  missRows = new Set(missingOf(page, rows, d.width, d.height));
   $("missInfo").textContent = missRows.size ? "⚠ 빠진 줄 의심 " + missRows.size : "";
   drawOverlay();
 }
@@ -834,6 +861,7 @@ $("checklist").onclick = async () => {
   $("chkBody").textContent = "계산 중…"; $("chkDlg").showModal();
   syncFull();
   if (!rowTextsAll) { try { rowTextsAll = await api("/api/rowtexts"); } catch (e) { rowTextsAll = []; } }
+  if (!rowBoxesAll) { try { rowBoxesAll = await api("/api/rowboxes"); } catch (e) { rowBoxesAll = []; } }
   curGrams = grams(sq(full), 5);
   const n = book.pages.length, pages = [...Array(n)].map((_, i) => i + 1);
   const textOf = no => { const r = pageRange(no); return r ? full.slice(r.from, r.to) : ""; };
@@ -850,7 +878,7 @@ $("checklist").onclick = async () => {
   });
   add("표 문법 확인 (행마다 칸 수가 다름)", badTable.map(no => [no, ""]), "없음");
   add("글이 없는 쪽 (OCR 글은 있었는데 지금 비어 있음)", pages.filter(no => !textOf(no).trim() && (rowTextsAll[no - 1] || []).some(t => sq(t).length >= 4)).map(no => [no, ""]), "없음", "그림만 있는 쪽이면 괜찮습니다");
-  add("빠진 줄 의심 (처음 OCR 글에는 있는데 지금 글에서 찾을 수 없음)", pages.map(no => [no, missingOf(no, rowTextsAll[no - 1] || []).length]).filter(x => x[1]).map(([no, k]) => [no, k + "줄"]), "없음", "일부러 지운 머리말·기호라면 괜찮습니다");
+  add("빠진 줄 의심 (처음 OCR 글에는 있는데 지금 글에서 찾을 수 없음)", pages.map(no => { const pg = rowBoxesAll[no - 1]; return [no, (pg ? missingOf(no, pg.rows, pg.w, pg.h) : missingOf(no, rowTextsAll[no - 1] || [])).length]; }).filter(x => x[1]).map(([no, k]) => [no, k + "줄"]), "없음", "일부러 지운 머리말·기호라면 괜찮습니다");
   const esc = x => String(x).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   $("chkBody").innerHTML = items.map(it => "<h3>" + (it.list.length ? '<span class="bad">●</span> ' : '<span class="ok">✓</span> ') + esc(it.title) + (it.list.length ? " — " + it.list.length + "쪽" : "") + "</h3>" +
     (it.list.length ? it.list.slice(0, 200).map(([no, d]) => '<span class="pg" data-p="' + no + '">' + no + "쪽" + (d ? " " + esc(d) : "") + "</span>").join("") + (it.list.length > 200 ? " …" : "") + (it.note ? '<div style="color:var(--muted);font-size:12px">' + esc(it.note) + "</div>" : "")
@@ -886,6 +914,68 @@ $("replOk").onclick = () => {
   for (const k of pick) full = full.slice(0, k) + r + full.slice(k + q.length);
   loadPageText(page, true); renderSuggestions(); markDirty(); scheduleMissing();
   setStatus(pick.length + "곳을 바꿨습니다 (쪽 넘어 되돌리기는 안 되니 필요하면 다시 바꾸세요)");
+};
+
+// ---- 영역 지우기 -----------------------------------------------------------------
+// 쪽 크기 대비 비율로 영역을 잡아, 적용할 쪽마다 그 안에 중심이 있는 OCR 줄을 지금 글에서 찾아 지운다
+let erBox = null, erPlan = [], rowBoxesAll = null;
+function erScope() { return document.querySelector('input[name="erScope"]:checked').value; }
+function erApplies(no) {
+  const sc = erScope();
+  return sc === "all" || (sc === "page" && no === page) || (sc === "odd" && no % 2 === 1) || (sc === "even" && no % 2 === 0)
+    || (sc === "range" && no >= (+$("erFrom").value || 1) && no <= (+$("erTo").value || 1e9));
+}
+function looseRx(t) {  // 줄 글 → 띄어쓰기 차이를 허용하는 정규식 (OCR 뒤 띄어쓰기 교정·사람이 고친 빈칸)
+  const parts = [...t.replace(/\s+/g, "")].map(c => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return parts.length ? new RegExp(parts.join("[ \\t]*")) : null;
+}
+function erCompute() {
+  erPlan = [];
+  rowBoxesAll.forEach((pg, i) => {
+    const no = i + 1; if (!erApplies(no) || !pg.w) return;
+    const hits = pg.rows.filter(r => { const cx = (r.box[0] + r.box[2]) / 2 / pg.w, cy = (r.box[1] + r.box[3]) / 2 / pg.h;
+      return cx >= erBox[0] && cx <= erBox[2] && cy >= erBox[1] && cy <= erBox[3] && r.text.trim(); });
+    if (hits.length) erPlan.push({ no, texts: hits.map(r => r.text.trim()) });
+  });
+  const esc = x => x.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const nRows = erPlan.reduce((a, p) => a + p.texts.length, 0);
+  $("erInfo").innerHTML = nRows ? "<b>" + erPlan.length + "쪽에서 " + nRows + "줄</b>을 지웁니다. 지울 글이 맞는지 확인하세요 (본문이 섞여 있으면 영역을 좁혀 다시 지정)." : '<span class="warn">이 영역·쪽 범위에서 OCR 글을 찾지 못했습니다</span>';
+  $("erList").innerHTML = erPlan.slice(0, 300).map(p => "<div><b>" + p.no + "쪽</b> " + p.texts.map(esc).join(" · ") + "</div>").join("") + (erPlan.length > 300 ? "<div>…</div>" : "");
+  $("erOk").disabled = !nRows;
+}
+async function openEraseDialog(box) {
+  const d = rowsData[page] || {}, W = d.width || img.naturalWidth, H = d.height || img.naturalHeight;
+  erBox = [box[0] / W, box[1] / H, box[2] / W, box[3] / H];
+  if (!rowBoxesAll) { try { rowBoxesAll = await api("/api/rowboxes"); } catch (e) { setStatus("OCR 줄 정보를 읽지 못했습니다: " + e.message, true); return; } }
+  $("erFrom").value = page; $("erTo").value = book.pages.length;
+  erCompute(); $("eraseDlg").showModal();
+}
+document.querySelectorAll('input[name="erScope"]').forEach(r => r.onchange = erCompute);
+$("erFrom").oninput = $("erTo").oninput = () => { document.querySelector('input[name="erScope"][value="range"]').checked = true; erCompute(); };
+$("erCancel").onclick = () => { $("eraseDlg").close(); sel.hidden = true; pendingBox = null; };
+$("erOk").onclick = async () => {
+  $("eraseDlg").close(); sel.hidden = true; pendingBox = null;
+  syncFull();
+  let done = 0, miss = 0;
+  for (const p of [...erPlan].sort((a, b) => b.no - a.no)) {  // 뒤쪽 쪽부터 (앞쪽 위치가 바뀌지 않게)
+    const r = pageRange(p.no); if (!r) { miss += p.texts.length; continue; }
+    let seg = full.slice(r.from, r.to);
+    for (const t of p.texts) {
+      const rx = looseRx(t), m = rx && rx.exec(seg);
+      if (m) { seg = seg.slice(0, m.index) + seg.slice(m.index + m[0].length); done++; } else miss++;
+    }
+    seg = seg.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+\n/g, "\n").replace(/\n[ \t]+/g, "\n").replace(/\n{3,}/g, "\n\n").replace(/[ \t]+$/, "");
+    full = full.slice(0, r.from) + seg + full.slice(r.to);
+  }
+  if ($("erSave").checked) {
+    const sc = erScope();
+    try { await api("/api/exclude", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ box: erBox, scope: sc, from: sc === "page" ? page : +$("erFrom").value || 1, to: sc === "page" ? page : +$("erTo").value || 99999 }) }); }
+    catch (e) { setStatus("영역 저장 실패: " + e.message, true); }
+    try { excludeRegions = await api("/api/exclude"); } catch (e) {}
+  }
+  loadPageText(page, true); renderSuggestions(); markDirty(); scheduleMissing();
+  setStatus("영역 안 글 " + done + "줄을 지웠습니다" + (miss ? " · 이미 없거나 고쳐서 못 찾은 " + miss + "줄" : "") + " (되돌리려면 편집기를 닫고 .md.bak)");
 };
 
 // ---- 머리말·꼬리말 정리 (이미 OCR 한 책) ----------------------------------------------
@@ -966,15 +1056,17 @@ $("prev").onclick = () => showPage(page - 1, { moveText: true });
 $("next").onclick = () => showPage(page + 1, { moveText: true });
 $("pageNo").addEventListener("change", e => showPage(+e.target.value || 1, { moveText: true }));
 $("toggleRows").onclick = e => { showRows = !showRows; e.target.classList.toggle("on", showRows); drawOverlay(); };
-function setMode(m) {  // 그림 넣기 / 표 넣기 모드 (둘 중 하나만)
-  cropOn = m === "crop" && !cropOn; tableOn = m === "table" && !tableOn;
-  $("cropMode").classList.toggle("on", cropOn); $("tableMode").classList.toggle("on", tableOn);
-  wrap.classList.toggle("crop", cropOn || tableOn); sel.hidden = true;
+function setMode(m) {  // 그림 넣기 / 표 넣기 / 영역 지우기 모드 (하나만)
+  cropOn = m === "crop" && !cropOn; tableOn = m === "table" && !tableOn; eraseOn = m === "erase" && !eraseOn;
+  $("cropMode").classList.toggle("on", cropOn); $("tableMode").classList.toggle("on", tableOn); $("eraseMode").classList.toggle("on", eraseOn);
+  wrap.classList.toggle("crop", cropOn || tableOn || eraseOn); sel.hidden = true;
   $("imgHint").textContent = cropOn ? "그림으로 넣을 영역을 끌어 지정하세요 (점선 영역은 누르면 바로 선택)"
-    : tableOn ? "표 영역을 끌어 지정하세요 (표 제목·설명은 빼고 칸만)" : "";
+    : tableOn ? "표 영역을 끌어 지정하세요 (표 제목·설명은 빼고 칸만)"
+    : eraseOn ? "지울 글이 있는 위치(쪽 번호·꼬리말·로고 등)를 넉넉하게 끌어 지정하세요" : "";
 }
 $("cropMode").onclick = () => setMode("crop");
 $("tableMode").onclick = () => setMode("table");
+$("eraseMode").onclick = () => setMode("erase");
 $("zoomIn").onclick = () => zoomBy(1.25);
 $("zoomOut").onclick = () => zoomBy(1 / 1.25);
 $("zoomFit").onclick = () => { zoom = 0; applyZoom(); };
@@ -1209,12 +1301,13 @@ window.addEventListener("keydown", e => {
   else if (e.altKey && e.key.toLowerCase() === "s") { e.preventDefault(); $("nextSug").click(); }
   else if (e.altKey && e.key.toLowerCase() === "g") { e.preventDefault(); $("cropMode").click(); }
   else if (e.altKey && e.key.toLowerCase() === "t") { e.preventDefault(); $("tableMode").click(); }
+  else if (e.altKey && e.key.toLowerCase() === "e") { e.preventDefault(); $("eraseMode").click(); }
   else if (e.altKey && e.key.toLowerCase() === "c") { e.preventDefault(); $("checkPage").click(); }
   else if (e.altKey && e.key.toLowerCase() === "v") { e.preventDefault(); $("nextUnchecked").click(); }
 });
 
 // ---- 시작 --------------------------------------------------------------
-const EDITOR_VERSION = "2026-11-10.2";  // ebook_review.py 의 EDITOR_VERSION 과 같게
+const EDITOR_VERSION = "2026-11-10.3";  // ebook_review.py 의 EDITOR_VERSION 과 같게
 (async function init() {
   try {
     let sv = ""; try { sv = (await api("/api/version")).version; } catch (e) {}
@@ -1230,6 +1323,7 @@ const EDITOR_VERSION = "2026-11-10.2";  // ebook_review.py 의 EDITOR_VERSION �
     applyZoom();
     try { checkedSet = new Set(await api("/api/checked")); } catch (e) { checkedSet = new Set(); }
     try { srcGrams = grams(sq((await api("/api/source")).md || ""), 5); } catch (e) { srcGrams = null; }
+    try { excludeRegions = await api("/api/exclude"); } catch (e) { excludeRegions = []; }
     page = 0; await showPage(markers().length ? markers()[0].no : 1, {});
     setStatus("준비됨");
   } catch (e) { setStatus("불러오기 실패: " + e.message, true); }

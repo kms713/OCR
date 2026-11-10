@@ -86,6 +86,10 @@ EbookOCR/                  ← 전자책 OCR
     숫자뿐인 줄·반복 줄(숫자 무시 비교, 20%·3쪽 이상)은 빼고, FOOTER 모양(쪽 번호+짧은 글)은 제목 크기(본문 1.3배 초과)가 아니고 본문과 1.2줄 이상 떨어졌을 때만 뺌(장마다 바뀌는 꼬리말도 반복 없이 빠짐).
     편집기 '머리말·꼬리말 정리': 캐시 OCR 줄의 쪽별 맨 위·아래 두 줄 중 20% 이상 반복되는 것, 또는 맨 위·아래 한 줄로 3쪽 이상 나오고 쪽 번호가 붙은 것(장별 꼬리말) → 숫자는 \d{1,4}, 글자 사이 빈칸 허용 정규식으로 지금 글에서 찾아 골라 지움, 숫자뿐인 줄 별도.
   편집기 키: PageUp/PageDown 쪽 넘기기, Shift+Enter `<br>`(내보내기 Word 문단·표 칸 안 줄바꿈).
+  영역 지우기(편집기): 쪽 크기 대비 비율 영역 + 적용 쪽(page/all/odd/even/range). GET /api/rowboxes 로 쪽별 줄 위치를 받아 영역 안 줄(중심 기준) 미리보기,
+    지금 글에서 띄어쓰기 차이를 허용해 찾아 지움(뒤쪽 쪽부터). '다시 OCR 할 때도 빼기'면 POST /api/exclude → 책이름_제외영역.json {regions:[{box,scope,from,to}]},
+    ebook_ocr.apply_exclusions 가 strip_headers 전에 rows·boxes 에서 뺌(fix_page_split 도 같음). 빠진 줄 의심은 저장된 영역 안 줄과 쪽 맨 위·아래의 쪽 번호 붙은 줄을 무시.
+  AI용 나눔(ebook_export.split_ai): `--split-level`(기본 1 = ## 대주제, 0 = 안 나눔)마다 `책이름_AI용_나눔/NN_제목.md`, 각 파일 맨 위 `# 책 제목`, 첫 제목 앞은 00_앞부분. 내보낼 때 폴더 안 .md 를 지우고 다시 씀.
   fix_page_split.py / 쪽나누기_고치기.bat  예전 판 교정 글에서 앞 쪽에 붙은 다음 쪽 글을 제 쪽으로 (캐시로 build_paragraphs(merge=False) 다시 계산, 띄어쓰기·서식 무시하고 첫머리 14→9→5자 맞춤, 고치기 전 .쪽나누기전 백업)
   make_sample.py / 샘플책_만들기.bat  교정기 시험용 3쪽 샘플(쪽 이미지·cache 줄 상자·교정용.md 일부러 넣은 잘못·제안 3건)
   설치.bat, 1_캡처점검.bat, 2_캡처.bat, 3_OCR.bat, 4_교정.bat, 5_내보내기.bat, 설치_GPU.bat, 3_OCR_GPU.bat
