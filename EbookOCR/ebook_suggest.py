@@ -561,7 +561,9 @@ def main(argv=None) -> int:
             continue
         except QuotaDaily as e:
             save_store(store_path, store)
-            print(f"\n[중단] 하루 사용 한도에 도달했습니다. 내일 같은 명령을 다시 실행하면 이어서 합니다.\n  {e}")
+            other = "6_AI교정제안_Gemini.bat" if args.service != "gemini" else "6_AI교정제안.bat (NVIDIA)"
+            print(f"\n[중단] 사용 한도에 도달했습니다. 나중에 같은 명령을 다시 실행하면 이어서 합니다.\n"
+                  f"  기다리기 싫으면 {other} 로 바로 이어 할 수도 있습니다 (검사한 문단은 서비스와 상관없이 건너뜀).\n  {e}")
             return 2
         except RuntimeError as e:
             save_store(store_path, store)

@@ -187,6 +187,8 @@ LD플레이어로 연 전자책을 한 쪽씩 넘기며 캡처하고, 글자만 
 
 [AI 교정 제안 - NVIDIA build 등 다른 서비스]
   · 키를 이 폴더에 nvidia_key.txt (키 한 줄)로 저장합니다. (git 에 올라가지 않습니다)
+  · 6_AI교정제안.bat 는 NVIDIA(google/gemma-4-31b-it)로 받습니다. Gemini 로 받으려면 6_AI교정제안_Gemini.bat.
+    한도에 걸리면 다른 쪽 bat 으로 바로 이어 할 수 있습니다 (이미 검사한 문단은 건너뜀).
   · 쓸 수 있는 모델 보기:   .venv\Scripts\python.exe ebook_suggest.py --service nvidia --list-models
     이름으로 거르기:        ... --service nvidia --list-models qwen
   · 연결 점검:              ... --service nvidia --check            (모델 지정: --model 이름)
