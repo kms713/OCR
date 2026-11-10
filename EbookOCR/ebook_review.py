@@ -67,6 +67,7 @@ class Book:
         self.source = out_dir / f"{title}_교정용.md"
         self.figures = out_dir / "figures"
         self.suggest = out_dir / f"{title}_제안.json"  # ebook_suggest.py 가 만든 AI 교정 제안
+        self.checked_file = out_dir / f"{title}_확인.json"  # 사람이 '확인 완료'한 쪽 (여러 PC 에서 이어서)
         self.lock = threading.Lock()
 
     # -- 작업 파일 --------------------------------------------------------
@@ -115,6 +116,34 @@ class Book:
         return {"rows": [{"text": r["text"], "box": r["box"], "score": r.get("score", 1.0)} for r in d.get("rows", [])],
                 "pictures": d.get("pictures", []), "width": d.get("width"), "height": d.get("height"),
                 "boxes": [{"text": b["text"], "box": b["box"]} for b in d.get("boxes", [])]}  # 표 넣기용 글상자
+
+    # -- 쪽 확인 완료 -----------------------------------------------------
+    def checked(self) -> list[int]:
+        try:
+            d = json.loads(self.checked_file.read_bytes().decode("utf-8"))
+            return sorted({int(x) for x in d.get("pages", [])})
+        except (OSError, ValueError):
+            return []
+
+    def set_checked(self, page: int, done: bool) -> list[int]:
+        with self.lock:
+            cur = set(self.checked())
+            (cur.add if done else cur.discard)(page)
+            tmp = self.checked_file.with_suffix(".json.tmp")
+            tmp.write_bytes(json.dumps({"pages": sorted(cur)}, ensure_ascii=False).encode("utf-8"))
+            tmp.replace(self.checked_file)
+            return sorted(cur)
+
+    def source_md(self) -> str:
+        """OCR 이 처음 만든 교정용 글 (빠진 글 경고의 기준)."""
+        try:
+            return self.source.read_bytes().decode("utf-8")
+        except OSError:
+            return ""
+
+    def row_texts(self) -> list[list[str]]:
+        """쪽마다 OCR 줄 글 (점검표·빠진 글 경고용)."""
+        return [[r["text"] for r in self.cache_json(i).get("rows", [])] for i in range(1, len(self.files) + 1)]
 
     def suspects(self) -> list[dict]:
         out = []
@@ -234,6 +263,12 @@ def make_handler(book: Book):
                                        "low_score": LOW_SCORE})
                 if path == "/api/suggestions":
                     return self._json(book.suggestions())
+                if path == "/api/checked":
+                    return self._json(book.checked())
+                if path == "/api/source":
+                    return self._json({"md": book.source_md()})
+                if path == "/api/rowtexts":
+                    return self._json(book.row_texts())
                 if path == "/api/suspects":
                     return self._json(book.suspects())
                 m = re.fullmatch(r"/api/rows/(\d+)", path)
@@ -273,6 +308,9 @@ def make_handler(book: Book):
                     req = json.loads(self._body().decode("utf-8"))
                     rel = book.crop(int(req["page"]), [float(v) for v in req["box"]])
                     return self._json({"path": rel})
+                if urlparse(self.path).path == "/api/checked":
+                    req = json.loads(self._body().decode("utf-8"))
+                    return self._json(book.set_checked(int(req["page"]), bool(req["done"])))
                 if urlparse(self.path).path == "/api/suggest/status-many":
                     req = json.loads(self._body().decode("utf-8"))
                     book.set_suggest_status_many([(str(x["orig"]), str(x["status"])) for x in req["items"]])

@@ -75,6 +75,27 @@
   #hl .m-q { background:var(--md-q); border-radius:3px; }
   #hl .m-sug { background:var(--md-sug); border-radius:3px; }
   .legend { color:var(--muted); font-size:12px; }
+  #hl .m-fn { background:rgba(47,111,237,.18); border-radius:3px; }
+  .rbox.miss { border:2px dashed #f5a524; background:rgba(245,165,36,.18); }
+  #progress { color:var(--muted); font-size:13px; }
+  #checkPage.on { background:var(--ok); border-color:var(--ok); color:#fff; }
+  #missInfo { color:#c77d00; font-size:12px; cursor:pointer; }
+  #preview { flex:1; min-height:0; overflow:auto; padding:14px 18px; background:var(--panel); line-height:1.8; font-size:15px; }
+  #preview[hidden], #edwrap[hidden] { display:none; }
+  #preview h2 { font-size:20px; margin:14px 0 6px; } #preview h3 { font-size:17px; margin:12px 0 6px; } #preview h4 { font-size:15px; margin:10px 0 4px; }
+  #preview blockquote { margin:6px 0; padding:2px 10px; border-left:3px solid var(--line); color:var(--muted); font-size:13px; }
+  #preview table { border-collapse:collapse; margin:8px 0; font-size:14px; } #preview th, #preview td { border:1px solid var(--line); padding:3px 8px; vertical-align:top; }
+  #preview th { background:var(--bg); }
+  #preview figure { margin:10px 0; text-align:center; } #preview figure img { max-width:100%; max-height:420px; }
+  #preview figcaption { color:var(--muted); font-size:12px; }
+  #preview .cont { color:var(--muted); font-size:12px; }
+  .dlgwide { max-width:min(900px, 96vw); width:900px; }
+  .chk h3 { font-size:14px; margin:12px 0 4px; } .chk .ok { color:var(--ok); } .chk .bad { color:var(--low); }
+  .pg { display:inline-block; margin:2px 3px; padding:0 6px; border:1px solid var(--line); border-radius:4px; cursor:pointer; font-size:12px; }
+  .pg:hover { border-color:var(--accent); }
+  #replList { max-height:50vh; overflow:auto; margin:8px 0; }
+  #replList label { display:block; padding:3px 4px; border-bottom:1px solid var(--line); font-size:13px; }
+  #replList b { background:var(--md-sug); }
   #hl .m-tbl { color:var(--md-h2); }
   #tblDlg { max-width:min(960px, 96vw); width:960px; }
   #tblPreview { max-height:38vh; overflow:auto; margin:8px 0; border:1px solid var(--line); border-radius:6px; }
@@ -125,6 +146,10 @@
   <button id="toggleRows" class="on" title="이미지 위에 OCR이 읽은 줄 표시">줄 상자</button>
   <button id="nextLow" title="신뢰도가 낮은 다음 줄로 이동 (Alt+L)">다음 의심 줄</button>
   <span class="sep"></span>
+  <button id="checkPage" title="이 쪽을 다 읽고 확인했으면 누름. 다시 누르면 취소 (Alt+C)">이 쪽 확인 완료</button>
+  <button id="nextUnchecked" title="아직 확인하지 않은 다음 쪽 (Alt+V)">다음 미확인 쪽</button>
+  <span id="progress"></span>
+  <span class="sep"></span>
   <button id="nextSug" title="AI 교정 제안이 남은 다음 쪽으로 이동 (Alt+S)" hidden>다음 제안 쪽</button>
   <button id="cropMode" title="이미지에서 영역을 끌어 그림으로 넣기 (Alt+G)">그림 넣기 모드</button>
   <button id="figs" title="넣은 그림 목록과 설명이 빠진 그림 점검">그림 목록</button>
@@ -133,6 +158,7 @@
   <button id="zoomOut" title="축소 (Ctrl+휠)">－</button><button id="zoomText" title="글이 있는 영역을 칸 폭에 맞춤 (기본)">글 맞춤</button><button id="zoomFit" title="쪽 전체를 칸 폭에 맞춤">쪽 전체</button><button id="zoomIn" title="확대 (Ctrl+휠)">＋</button>
   <span class="grow"></span>
   <span id="status">불러오는 중…</span>
+  <button id="checklist" title="내보내기 전에 남은 일 점검: 미확인 쪽, [?], 설명 없는 그림, 남은 제안, 표 문법, 빠진 줄">점검표</button>
   <button id="saveNow" title="바로 저장 (Ctrl+S)">저장</button>
 </header>
 <main>
@@ -142,11 +168,13 @@
   </section>
   <section>
     <div class="bar"><span class="t" id="edTitle">교정 글</span><button id="contToggle" hidden title="이 쪽 첫 문단을 앞 쪽 마지막 문단과 이어 붙일지 (내보낼 때 적용)"></button>
+      <button id="previewBtn" title="이 쪽을 완성본처럼 꾸며 보기 (다시 누르면 고치기로)">미리보기</button>
+      <span id="missInfo" title="원래 OCR 글에 있던 줄 중 지금 글에서 찾을 수 없는 줄 (실수로 지웠는지 확인). 이미지에 주황 점선으로 표시"></span>
       <span class="legend">이 쪽 글만 보입니다 ·
-        <i style="color:var(--md-h)">## 대</i><i style="color:var(--md-h2)">### 중</i><i style="color:var(--md-h3)">#### 소</i><i style="color:var(--md-quote)">&gt; 주</i><i style="color:var(--md-img)">![그림]</i><i style="color:var(--md-h2)">| 표 |</i><i style="background:var(--md-q)">[?]</i><i style="background:var(--md-sug)">AI 제안 있음</i></span>
+        <i style="color:var(--md-h)">## 대</i><i style="color:var(--md-h2)">### 중</i><i style="color:var(--md-h3)">#### 소</i><i style="color:var(--md-quote)">&gt; 주</i><i style="color:var(--md-img)">![그림]</i><i style="color:var(--md-h2)">| 표 |</i><i style="background:var(--md-q)">[?]</i><i style="background:rgba(47,111,237,.18)">▸● 각주 후보</i><i style="background:var(--md-sug)">AI 제안 있음</i></span>
       <span class="grow"></span>
       <input id="findText" type="text" placeholder="찾기" size="10"><input id="replText" type="text" placeholder="바꿀 글" size="10">
-      <button id="findNext">찾기</button><button id="replAll">모두 바꾸기</button>
+      <button id="findNext">찾기</button><button id="replAll" title="책 전체에서 바꿀 곳을 목록으로 보고 골라서 바꾸기">바꾸기…</button>
     </div>
     <div class="fmt">
       <button id="fB" title="굵게 (Ctrl+B) — 글을 고르고 누름"><b>굵게</b></button>
@@ -164,6 +192,7 @@
       <button id="fDown" title="커서가 있는 문단을 한 문단 아래로 (Alt+↓)">문단 ▼</button>
     </div>
     <div id="edwrap"><pre id="hl" aria-hidden="true"></pre><textarea id="editor" spellcheck="false"></textarea></div>
+    <div id="preview" hidden></div>
     <div id="sugPanel" hidden><div class="bar"><span class="t">AI 교정 제안</span><span id="sugInfo" style="color:var(--muted)"></span><span class="grow"></span><button id="acceptPage" title="이 쪽 제안을 모두 글에 반영">이 쪽 모두 수락</button><button id="rejectPage" title="이 쪽 제안을 모두 거절">이 쪽 모두 거절</button><button id="acceptAll" title="책 전체의 남은 제안을 한 번에 글에 반영">책 전체 모두 수락…</button></div><div id="sugList"></div></div>
   </section>
 </main>
@@ -198,6 +227,19 @@
   <label style="display:block;margin-top:8px"><input type="checkbox" id="bulkSkipFlag" checked> ⚠ 표시(숫자·영문이 바뀐 제안)는 빼고 수락 — 따로 확인하세요</label>
   <div style="color:var(--muted);font-size:12px;margin-top:6px">수락 전 교정 글을 '책이름_교정.md.일괄수락전' 으로 한 벌 남깁니다. 되돌리려면 편집기를 닫고 그 파일 이름을 '책이름_교정.md' 로 바꾸세요.</div>
   <div class="row"><button id="bulkCancel">취소</button><button id="bulkOk" class="on">모두 수락</button></div>
+</dialog>
+
+<dialog id="chkDlg" class="dlgwide">
+  <h2>내보내기 전 점검표</h2>
+  <div id="chkBody" class="chk">계산 중…</div>
+  <div class="row"><button id="chkClose">닫기</button></div>
+</dialog>
+
+<dialog id="replDlg" class="dlgwide">
+  <h2 id="replTitle">바꾸기</h2>
+  <div><button id="replAllOn">모두 선택</button> <button id="replAllOff">모두 해제</button></div>
+  <div id="replList"></div>
+  <div class="row"><button id="replCancel">취소</button><button id="replOk" class="on">선택한 곳 바꾸기</button></div>
 </dialog>
 
 <dialog id="figListDlg">
@@ -282,7 +324,8 @@ function plainHl(t) {  // 서식 표시가 없는 글: 그림·주석·[?] 색�
     .replace(/!\[([^\]]*)\]\(([^)]*)\)/g, '<span class="m-img">![<span class="m-alt">$1</span>]($2)</span>')
     .replace(/&lt;!--.*?--&gt;/g, m => '<span class="m-cm">' + m + "</span>")
     .replace(/\[\?\]/g, '<span class="m-q">[?]</span>')
-    .replace(/&lt;br\s*\/?&gt;/gi, m => '<span class="m-mk">' + m + "</span>");
+    .replace(/&lt;br\s*\/?&gt;/gi, m => '<span class="m-mk">' + m + "</span>")
+    .replace(/[▸▶►•●◆■※](?=\s*\S)/g, m => '<span class="m-fn">' + m + "</span>");  // 각주 후보 표시 기호
 }
 function hlInline(t, fmt) {  // 서식 표시는 흐리게, 안의 글은 서식마다 색 (겹치면 겹쳐서)
   fmt = fmt || ""; let out = "", k = 0;
@@ -378,6 +421,7 @@ async function showPage(no, opts) {
   }
   if (opts.moveText) focusPageText(no);
   if (typeof renderSuggestions === 'function') renderSuggestions();
+  if (changed) { missRows = new Set(); if (srcGrams) updateMissing(); refreshProgress(); if (!$("preview").hidden) renderPreview(); }
 }
 function drawOverlay() {
   overlay.innerHTML = "";
@@ -393,8 +437,9 @@ function drawOverlay() {
   };
   (d.pictures || []).forEach((b, i) => { const e = add("pbox", b); e.dataset.pic = i; e.title = "OCR이 그림으로 본 영역 — 누르면 이 영역을 그림으로 넣습니다"; });
   if (showRows) d.rows.forEach((r, i) => {
-    const e = add("rbox" + (r.score < book.low_score ? " low" : "") + (i === curRow ? " cur" : ""), r.box, i);
-    e.title = r.text + "  (신뢰도 " + r.score.toFixed(2) + ")";
+    const miss = missRows.has(i);
+    const e = add("rbox" + (r.score < book.low_score ? " low" : "") + (miss ? " miss" : "") + (i === curRow ? " cur" : ""), r.box, i);
+    e.title = (miss ? "[빠진 줄 의심] " : "") + r.text + "  (신뢰도 " + r.score.toFixed(2) + ")";
   });
 }
 let wantTextScroll = false;  // 쪽을 바꾼 뒤 이미지가 늦게 뜨면 그때 글 영역으로 스크롤
@@ -671,6 +716,170 @@ $("tblOk").onclick = () => {
   }
 };
 
+// ---- 1) 쪽 확인 완료·진행률 ---------------------------------------------------
+let checkedSet = new Set();
+function refreshProgress() {
+  const n = book ? book.pages.length : 0;
+  $("progress").textContent = "확인 " + checkedSet.size + "/" + n + "쪽";
+  const on = checkedSet.has(page); $("checkPage").classList.toggle("on", on);
+  $("checkPage").textContent = on ? "✓ 확인 완료" : "이 쪽 확인 완료";
+}
+$("checkPage").onclick = async () => {
+  const done = !checkedSet.has(page);
+  try { checkedSet = new Set(await api("/api/checked", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ page, done }) })); }
+  catch (e) { setStatus("확인 표시 저장 실패: " + e.message, true); return; }
+  refreshProgress();
+  if (done) { const nx = nextUnchecked(); setStatus(page + "쪽 확인 완료" + (nx ? " → '다음 미확인 쪽'은 " + nx + "쪽" : " · 모든 쪽을 확인했습니다")); }
+};
+function nextUnchecked() {
+  const n = book.pages.length;
+  for (let d = 1; d <= n; d++) { const no = (page - 1 + d) % n + 1; if (!checkedSet.has(no)) return no; }
+  return 0;
+}
+$("nextUnchecked").onclick = () => { const nx = nextUnchecked(); if (nx) showPage(nx, {}); else setStatus("모든 쪽을 확인했습니다"); };
+
+// ---- 2) 글 → 이미지 연동: 커서가 있는 곳의 원본 줄을 이미지에서 강조 ----------------------
+let caretT = null;
+function syncImageToCaret() {
+  const rows = (rowsData[page] && rowsData[page].rows) || []; if (!rows.length || !$("preview").hidden) return;
+  const v = ed.value, c = ed.selectionStart;
+  const keys = [sq(v.slice(Math.max(0, c - 4), c + 6)), sq(v.slice(c, c + 6)), sq(v.slice(Math.max(0, c - 6), c))].filter(k => k.length >= 3);
+  const rs = rows.map(r => sq(r.text));
+  for (const k of keys) {
+    const i = rs.findIndex(t => t.includes(k));
+    if (i >= 0) {
+      if (i !== curRow) { curRow = i; drawOverlay(); const e = wrap.querySelector('.rbox[data-idx="' + i + '"]'); if (e) e.scrollIntoView({ block: "nearest", inline: "nearest" }); }
+      return;
+    }
+  }
+}
+["click", "keyup"].forEach(ev => ed.addEventListener(ev, () => { clearTimeout(caretT); caretT = setTimeout(syncImageToCaret, 120); }));
+
+// ---- 4) 빠진 글 경고: OCR 이 처음 만든 글에는 있는데 지금 글에서 찾을 수 없는 줄 --------------
+let srcGrams = null, curGrams = null, missRows = new Set(), missT = null;
+function grams(t, n) { const g = new Set(); for (let i = 0; i + n <= t.length; i++) g.add(t.slice(i, i + n)); return g; }
+function presentIn(text, set) { const g = grams(sq(text), 5); if (g.size < 2) return true; let k = 0; g.forEach(x => { if (set.has(x)) k++; }); return k >= 0.6 * g.size; }
+function missingOf(no, rowsTexts) {  // 그 쪽에서 빠진 줄 번호들
+  if (!srcGrams || !curGrams) return [];
+  const out = []; (rowsTexts || []).forEach((t, i) => { if (presentIn(t, srcGrams) && !presentIn(t, curGrams)) out.push(i); }); return out;
+}
+function updateMissing() {
+  curGrams = grams(sq(full), 5);
+  const rows = (rowsData[page] && rowsData[page].rows) || [];
+  missRows = new Set(missingOf(page, rows.map(r => r.text)));
+  $("missInfo").textContent = missRows.size ? "⚠ 빠진 줄 의심 " + missRows.size : "";
+  drawOverlay();
+}
+function scheduleMissing() { clearTimeout(missT); missT = setTimeout(updateMissing, 1500); }
+ed.addEventListener("input", scheduleMissing);
+$("missInfo").onclick = () => { const i = [...missRows][0]; if (i !== undefined) { const e = wrap.querySelector('.rbox[data-idx="' + i + '"]'); if (e) e.scrollIntoView({ block: "center" }); setStatus("주황 점선 줄이 지금 글에서 보이지 않습니다. 일부러 지웠으면 무시하세요"); } };
+
+// ---- 6) 미리보기 (완성본처럼) ------------------------------------------------------
+function inlineHtml(t, fmt) {
+  fmt = fmt || ""; let out = "", k = 0;
+  const wrapF = x => [...fmt].reduce((a, f) => "<" + f + ">" + a + "</" + f + ">", x);
+  const plain = x => escH(x).replace(/&lt;br\s*\/?&gt;/gi, "<br>");
+  while (k < t.length) {
+    let best = null;
+    for (const [rx, f] of FMT) { rx.lastIndex = k; const m = rx.exec(t); if (m && (!best || m.index < best.m.index)) best = { m, f }; }
+    if (!best) break;
+    if (best.m.index > k) out += wrapF(plain(t.slice(k, best.m.index)));
+    out += inlineHtml(best.m[1], [...new Set(fmt + best.f)].sort().join(""));
+    k = best.m.index + best.m[0].length;
+  }
+  return out + (k < t.length ? wrapF(plain(t.slice(k))) : "");
+}
+function mdToHtml(text) {
+  const lines = text.split("\n"), out = []; let i = 0;
+  while (i < lines.length) {
+    const l = lines[i].trim(); let m;
+    if (!l) { i++; continue; }
+    if (/^\|.*\|$/.test(l)) {
+      const tl = []; while (i < lines.length && /^\|.*\|$/.test(lines[i].trim())) tl.push(lines[i++].trim());
+      const head = tl.length > 1 && /^[|:\-\s]+$/.test(tl[1]);
+      const rows = parseMdTable(tl.join("\n"));
+      out.push("<table>" + rows.map((r, j) => "<tr>" + r.map(c => (j === 0 && head ? "<th>" : "<td>") + inlineHtml(c) + (j === 0 && head ? "</th>" : "</td>")).join("") + "</tr>").join("") + "</table>");
+      continue;
+    }
+    if ((m = /^(#{1,6})\s+(.*)$/.exec(l))) { const n = Math.min(4, m[1].length); out.push("<h" + n + ">" + inlineHtml(m[2]) + "</h" + n + ">"); }
+    else if ((m = /^!\[([^\]]*)\]\(([^)\s]+)\)$/.exec(l))) out.push('<figure><img src="/' + escH(m[2]) + '" alt=""><figcaption>' + (escH(m[1]) || '<span class="warn">설명 없음</span>') + "</figcaption></figure>");
+    else if ((m = /^>\s?(.*)$/.exec(l))) out.push("<blockquote>" + inlineHtml(m[1]) + "</blockquote>");
+    else out.push("<p>" + inlineHtml(l) + "</p>");
+    i++;
+  }
+  return out.join("");
+}
+function renderPreview() {
+  const mk = markers().find(m => m.no === page);
+  $("preview").innerHTML = (mk && mk.cont ? '<div class="cont">(첫 문단은 앞 쪽에서 이어짐 — 완성본에서는 앞 문단에 붙습니다)</div>' : "") + (mdToHtml(ed.value) || '<p class="warn">이 쪽에는 글이 없습니다</p>');
+}
+$("previewBtn").onclick = () => {
+  const on = $("preview").hidden;
+  $("preview").hidden = !on; $("edwrap").hidden = on; $("previewBtn").classList.toggle("on", on);
+  document.querySelectorAll(".fmt button").forEach(b => b.disabled = on);
+  if (on) renderPreview(); else ed.focus();
+};
+
+// ---- 3) 내보내기 전 점검표 ----------------------------------------------------------
+let rowTextsAll = null;
+$("checklist").onclick = async () => {
+  $("chkBody").textContent = "계산 중…"; $("chkDlg").showModal();
+  syncFull();
+  if (!rowTextsAll) { try { rowTextsAll = await api("/api/rowtexts"); } catch (e) { rowTextsAll = []; } }
+  curGrams = grams(sq(full), 5);
+  const n = book.pages.length, pages = [...Array(n)].map((_, i) => i + 1);
+  const textOf = no => { const r = pageRange(no); return r ? full.slice(r.from, r.to) : ""; };
+  const items = [];
+  const add = (title, list, okText, note) => items.push({ title, list, okText, note });
+  add("확인 안 한 쪽", pages.filter(no => !checkedSet.has(no)).map(no => [no, ""]), "모든 쪽을 확인했습니다");
+  add("남은 [?] (자신 없는 글자)", pages.map(no => [no, (textOf(no).match(/\[\?\]/g) || []).length]).filter(x => x[1]).map(([no, k]) => [no, k + "곳"]), "없음");
+  add("설명 없는 그림", pages.map(no => [no, (textOf(no).match(/!\[\s*\]\(/g) || []).length]).filter(x => x[1]).map(([no, k]) => [no, k + "개"]), "없음");
+  const sugLeft = pages.map(no => [no, paragraphsOfPage(no).filter(t => sugMap.has(t))]).filter(x => x[1].length);
+  add("남은 AI 제안", sugLeft.map(([no, l]) => [no, l.length + "건" + (l.some(t => sugMap.get(t).flags.length) ? " ⚠" : "")]), "없음");
+  const badTable = pages.filter(no => {
+    const blocks = textOf(no).split(/\n\s*\n/).map(b => b.split("\n").map(l => l.trim()).filter(l => /^\|.*\|$/.test(l))).filter(b => b.length);
+    return blocks.some(b => { const rows = parseMdTable(b.join("\n")); return rows.length && rows.some(r => r.length !== rows[0].length); });
+  });
+  add("표 문법 확인 (행마다 칸 수가 다름)", badTable.map(no => [no, ""]), "없음");
+  add("글이 없는 쪽 (OCR 글은 있었는데 지금 비어 있음)", pages.filter(no => !textOf(no).trim() && (rowTextsAll[no - 1] || []).some(t => sq(t).length >= 4)).map(no => [no, ""]), "없음", "그림만 있는 쪽이면 괜찮습니다");
+  add("빠진 줄 의심 (처음 OCR 글에는 있는데 지금 글에서 찾을 수 없음)", pages.map(no => [no, missingOf(no, rowTextsAll[no - 1] || []).length]).filter(x => x[1]).map(([no, k]) => [no, k + "줄"]), "없음", "일부러 지운 머리말·기호라면 괜찮습니다");
+  const esc = x => String(x).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  $("chkBody").innerHTML = items.map(it => "<h3>" + (it.list.length ? '<span class="bad">●</span> ' : '<span class="ok">✓</span> ') + esc(it.title) + (it.list.length ? " — " + it.list.length + "쪽" : "") + "</h3>" +
+    (it.list.length ? it.list.slice(0, 200).map(([no, d]) => '<span class="pg" data-p="' + no + '">' + no + "쪽" + (d ? " " + esc(d) : "") + "</span>").join("") + (it.list.length > 200 ? " …" : "") + (it.note ? '<div style="color:var(--muted);font-size:12px">' + esc(it.note) + "</div>" : "")
+      : '<div class="ok">' + esc(it.okText) + "</div>")).join("");
+  $("chkBody").querySelectorAll(".pg").forEach(e => e.onclick = () => { $("chkDlg").close(); showPage(+e.dataset.p, {}); });
+};
+$("chkClose").onclick = () => $("chkDlg").close();
+
+// ---- 5) 미리 보며 바꾸기 ------------------------------------------------------------
+let replHits = [];
+function openReplace(q, r) {
+  syncFull(); replHits = [];
+  const ms = markers();
+  let k = full.indexOf(q);
+  while (k >= 0) {
+    if (!ms.some(m => k < m.end && k + q.length > m.pos)) replHits.push(k);  // 쪽 표시 줄 안은 제외
+    k = full.indexOf(q, k + q.length);
+  }
+  if (!replHits.length) { setStatus("찾는 글이 없습니다", true); return; }
+  const esc = x => x.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])).replace(/\n/g, " ⏎ ");
+  $("replTitle").textContent = "'" + q + "' → '" + r + "' (" + replHits.length + "곳) — 바꿀 곳만 고르세요";
+  $("replList").innerHTML = replHits.map((k, i) => '<label><input type="checkbox" data-i="' + i + '" checked> ' + pageOfPos(k) + "쪽 · …" +
+    esc(full.slice(Math.max(0, k - 25), k)) + "<b>" + esc(q) + "</b>" + esc(full.slice(k + q.length, k + q.length + 25)) + "…</label>").join("");
+  $("replDlg").dataset.q = q; $("replDlg").dataset.r = r; $("replDlg").showModal();
+}
+$("replAllOn").onclick = () => $("replList").querySelectorAll("input").forEach(c => c.checked = true);
+$("replAllOff").onclick = () => $("replList").querySelectorAll("input").forEach(c => c.checked = false);
+$("replCancel").onclick = () => $("replDlg").close();
+$("replOk").onclick = () => {
+  const q = $("replDlg").dataset.q, r = $("replDlg").dataset.r;
+  const pick = [...$("replList").querySelectorAll("input")].filter(c => c.checked).map(c => replHits[+c.dataset.i]).sort((a, b) => b - a);
+  $("replDlg").close(); if (!pick.length) return;
+  for (const k of pick) full = full.slice(0, k) + r + full.slice(k + q.length);
+  loadPageText(page, true); renderSuggestions(); markDirty(); scheduleMissing();
+  setStatus(pick.length + "곳을 바꿨습니다 (쪽 넘어 되돌리기는 안 되니 필요하면 다시 바꾸세요)");
+};
+
 // ---- 저장 -------------------------------------------------------------
 function markDirty() { dirty = true; setStatus("수정됨…"); clearTimeout(saveTimer); saveTimer = setTimeout(save, 1500); }
 function onEdited() { syncFull(); highlight(); markDirty(); }
@@ -737,12 +946,10 @@ $("findNext").onclick = () => {  // 책 전체에서 찾는다 (다른 쪽에 �
   if (k < 0) { setStatus("찾는 글이 없습니다", true); return; }
   gotoGlobal(k, q.length); setStatus(page + "쪽에서 찾았습니다");
 };
-$("replAll").onclick = () => {  // 책 전체에서 바꾼다
+$("replAll").onclick = () => {  // 책 전체에서 바꿀 곳을 보여 주고 골라서 바꾼다
   const q = $("findText").value, r = $("replText").value; if (!q) return;
   if (/<!--|-->/.test(q)) { setStatus("쪽 표시(<!-- p.N -->)는 바꿀 수 없습니다", true); return; }
-  const n = full.split(q).length - 1; if (!n) { setStatus("찾는 글이 없습니다", true); return; }
-  if (!confirm("책 전체에서 '" + q + "' " + n + "곳을 '" + r + "' (으)로 바꿉니다. 계속할까요?")) return;
-  full = full.split(q).join(r); loadPageText(page, true); renderSuggestions(); markDirty(); setStatus(n + "곳을 바꿨습니다");
+  openReplace(q, r);
 };
 
 // ---- 그림 목록 ---------------------------------------------------------
@@ -913,6 +1120,8 @@ window.addEventListener("keydown", e => {
   else if (e.altKey && e.key.toLowerCase() === "s") { e.preventDefault(); $("nextSug").click(); }
   else if (e.altKey && e.key.toLowerCase() === "g") { e.preventDefault(); $("cropMode").click(); }
   else if (e.altKey && e.key.toLowerCase() === "t") { e.preventDefault(); $("tableMode").click(); }
+  else if (e.altKey && e.key.toLowerCase() === "c") { e.preventDefault(); $("checkPage").click(); }
+  else if (e.altKey && e.key.toLowerCase() === "v") { e.preventDefault(); $("nextUnchecked").click(); }
 });
 
 // ---- 시작 --------------------------------------------------------------
@@ -926,6 +1135,8 @@ window.addEventListener("keydown", e => {
     await loadSuggestions();
     $("nextLow").textContent = "다음 의심 줄 (" + suspects.length + ")";
     applyZoom();
+    try { checkedSet = new Set(await api("/api/checked")); } catch (e) { checkedSet = new Set(); }
+    try { srcGrams = grams(sq((await api("/api/source")).md || ""), 5); } catch (e) { srcGrams = null; }
     page = 0; await showPage(markers().length ? markers()[0].no : 1, {});
     setStatus("준비됨");
   } catch (e) { setStatus("불러오기 실패: " + e.message, true); }
