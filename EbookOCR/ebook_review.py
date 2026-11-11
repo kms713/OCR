@@ -116,7 +116,7 @@ class Book:
     def rows(self, no: int) -> dict:
         d = self.cache_json(no)
         return {"rows": [{"text": r["text"], "box": r["box"], "score": r.get("score", 1.0)} for r in d.get("rows", [])],
-                "pictures": d.get("pictures", []), "width": d.get("width"), "height": d.get("height"),
+                "pictures": d.get("pictures", []) + d.get("screens", []), "width": d.get("width"), "height": d.get("height"),
                 "boxes": [{"text": b["text"], "box": b["box"]} for b in d.get("boxes", [])]}  # 표 넣기용 글상자
 
     # -- 쪽 확인 완료 -----------------------------------------------------
@@ -149,7 +149,8 @@ class Book:
         for i in range(1, len(self.files) + 1):
             d = self.cache_json(i)
             out.append({"w": d.get("width"), "h": d.get("height"),
-                        "rows": [{"text": r["text"], "box": r["box"]} for r in d.get("rows", [])]})
+                        "rows": [{"text": r["text"], "box": r["box"]} for r in d.get("rows", [])],
+                        "boxes": [{"text": b["text"], "box": b["box"]} for b in d.get("boxes", [])]})  # 영역 지우기: 글상자 단위로 정밀하게
         return out
 
     def add_exclude(self, region: dict) -> int:

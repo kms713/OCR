@@ -172,6 +172,43 @@ def _norm_key(text: str) -> str:
     return re.sub(r"\s+", "", re.sub(r"\d+", "#", text))
 
 
+def drop_screenshots(pages: list[Page], found: dict | None = None) -> int:
+    """책 속 화면 캡처(검색 결과 화면 등) 글 빼기: 본문보다 아주 작은 글자(본문 높이 0.6배 미만)가 한곳에 빽빽하게
+    모인 곳(8개 이상, 세로 4줄·가로 6줄 이상 크기)을 그림으로 보고, 그 안의 글상자를 모두 뺀 뒤 줄을 다시 묶는다.
+    영역은 그림 후보(pictures)에 넣어 편집기에서 바로 '그림 넣기'를 할 수 있게 한다. 뺀 글상자 수."""
+    hs = [r.h for p in pages for r in p.rows]
+    if not hs:
+        return 0
+    lh = float(np.median(hs))
+    total = 0
+    for p in pages:
+        if not p.boxes:
+            continue  # 예전 캐시(글상자 정보 없음)
+        tiny = [b for b in p.boxes if b.h < 0.6 * lh]
+        clusters: list[list[float]] = []  # [x1, y1, x2, y2, 개수]
+        for b in sorted(tiny, key=lambda r: (r.box[1], r.box[0])):
+            for c in clusters:
+                if b.box[0] <= c[2] + 2 * lh and b.box[2] >= c[0] - 2 * lh and b.box[1] <= c[3] + lh and b.box[3] >= c[1] - lh:
+                    c[0], c[1], c[2], c[3], c[4] = min(c[0], b.box[0]), min(c[1], b.box[1]), max(c[2], b.box[2]), max(c[3], b.box[3]), c[4] + 1
+                    break
+            else:
+                clusters.append([*b.box, 1])
+        regions = [[c[0] - 0.3 * lh, c[1] - 0.3 * lh, c[2] + 0.3 * lh, c[3] + 0.3 * lh] for c in clusters
+                   if c[4] >= 8 and c[3] - c[1] >= 4 * lh and c[2] - c[0] >= 6 * lh]
+        if not regions:
+            continue
+        inside = lambda b: any(x1 <= (b[0] + b[2]) / 2 <= x2 and y1 <= (b[1] + b[3]) / 2 <= y2 for x1, y1, x2, y2 in regions)  # noqa: E731
+        keep = [b for b in p.boxes if not inside(b.box)]
+        total += len(p.boxes) - len(keep)
+        p.boxes = keep
+        import ocr_paddle as op
+        p.rows = group_rows([op.Item(b.text, b.score, list(b.box)) for b in keep])  # 같은 줄에 있던 본문 글은 남는다
+        p.pictures = p.pictures + [[int(v) for v in r] for r in regions]
+        if found is not None:
+            found[p.no] = [[int(v) for v in r] for r in regions]
+    return total
+
+
 def region_applies(reg: dict, no: int) -> bool:
     sc = reg.get("scope", "all")
     return (sc == "all" or (sc == "odd" and no % 2 == 1) or (sc == "even" and no % 2 == 0)
@@ -475,6 +512,7 @@ def parse_args(argv=None):
     ap.add_argument("--header-band", type=float, default=0.1,
                     help="머리말·꼬리말로 볼 위·아래 가장자리 비율 (기본 0.1)")
     ap.add_argument("--keep-headers", action="store_true", help="머리말·꼬리말·쪽 번호 제거 끄기")
+    ap.add_argument("--keep-screenshots", action="store_true", help="책 속 화면 캡처의 작은 글 빼기 끄기")
     ap.add_argument("--min-score", type=float, default=0.5, help="이 신뢰도 미만 글상자는 버림 (기본 0.5)")
     ap.add_argument("--redo", action="store_true", help="캐시를 무시하고 모든 쪽을 다시 인식")
     ap.add_argument("--device", default="auto", help="auto(기본) | cpu | gpu")
@@ -543,6 +581,20 @@ def main(argv=None) -> int:
             f"전체 걸린 시간: {time.monotonic() - started:.1f}초\n", encoding="utf-8")
 
     write_raw(pages, out_dir / f"{title}.txt")
+    if not args.keep_screenshots:
+        screens: dict[int, list] = {}
+        n_ss = drop_screenshots(pages, screens)
+        for no, f in enumerate(files, start=1):  # 편집기가 점선 '그림?' 으로 보이게 캐시에 기록 (인식 결과는 그대로)
+            cf = cache / f"{f.stem}.json"
+            try:
+                d = json.loads(cf.read_text(encoding="utf-8"))
+                if d.get("screens", []) != screens.get(no, []):
+                    d["screens"] = screens.get(no, [])
+                    cf.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+            except (OSError, ValueError):
+                pass
+        if n_ss:
+            print(f"화면 캡처로 보이는 영역의 작은 글 {n_ss}개를 뺐습니다 (편집기에서 점선 '그림?' 영역으로 보입니다. 끄려면 --keep-screenshots).")
     n_ex = apply_exclusions(pages, out_dir, title)
     if n_ex:
         print(f"제외 영역(편집기 '영역 지우기')의 줄 {n_ex}개를 뺐습니다.")

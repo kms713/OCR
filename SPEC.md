@@ -90,6 +90,9 @@ EbookOCR/                  ← 전자책 OCR
     지금 글에서 띄어쓰기 차이를 허용해 찾아 지움(뒤쪽 쪽부터). '다시 OCR 할 때도 빼기'면 POST /api/exclude → 책이름_제외영역.json {regions:[{box,scope,from,to}]},
     ebook_ocr.apply_exclusions 가 strip_headers 전에 rows·boxes 에서 뺌(fix_page_split 도 같음). 빠진 줄 의심은 저장된 영역 안 줄과 쪽 맨 위·아래의 쪽 번호 붙은 줄을 무시.
   AI용 나눔(ebook_export.split_ai): `--split-level`(기본 1 = ## 대주제, 0 = 안 나눔)마다 `책이름_AI용_나눔/NN_제목.md`, 각 파일 맨 위 `# 책 제목`, 첫 제목 앞은 00_앞부분. 내보낼 때 폴더 안 .md 를 지우고 다시 씀.
+  화면 캡처(ebook_ocr.drop_screenshots, 2026-11-11): 글상자 높이 < 본문 0.6배인 것을 가까운 것끼리(가로 2줄·세로 1줄 안) 묶어 8개 이상·세로 4줄·가로 6줄 이상이면 캡처로 보고
+    그 안 글상자를 모두 빼고 줄을 다시 묶음(같은 줄 본문 보존), 영역은 pictures 와 캐시 `screens`(편집기 점선 그림 후보)에. `--keep-screenshots` 로 끔. fix_page_split 도 같게.
+    편집기 그림 넣기: '그림 안 글 지우기'(기본 켬) — 영역 안 글상자 글을 이 쪽 글에서 띄어쓰기 차이 허용해 지움(2자 이하 건너뜀, 3~4자는 쪽에 한 번만 있을 때), 남은 1~2자 '> 주:' 줄 정리.
   fix_page_split.py / 쪽나누기_고치기.bat  예전 판 교정 글에서 앞 쪽에 붙은 다음 쪽 글을 제 쪽으로 (캐시로 build_paragraphs(merge=False) 다시 계산, 띄어쓰기·서식 무시하고 첫머리 14→9→5자 맞춤, 고치기 전 .쪽나누기전 백업)
   make_sample.py / 샘플책_만들기.bat  교정기 시험용 3쪽 샘플(쪽 이미지·cache 줄 상자·교정용.md 일부러 넣은 잘못·제안 3건)
   설치.bat, 1_캡처점검.bat, 2_캡처.bat, 3_OCR.bat, 4_교정.bat, 5_내보내기.bat, 설치_GPU.bat, 3_OCR_GPU.bat
