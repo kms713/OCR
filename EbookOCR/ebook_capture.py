@@ -579,6 +579,62 @@ def run_capture(adb: Adb, out: Path, args) -> int:
     return 0
 
 
+def make_pdf(folder: Path, dpi: float = 200.0, quality: int = 90) -> Path | None:
+    """폴더의 page_0001.png … 를 차례대로 한 PDF 로 (이미지는 그대로 둠). 책 폴더 옆에 '책이름.pdf'.
+    쪽마다 JPEG 로 넣어 바로 파일에 쓰므로 수백 쪽이어도 메모리를 거의 쓰지 않는다 (스캔 PDF 와 같은 구조).
+    dpi 200: 폭 1600px 쪽이 약 20cm — 화면·인쇄 모두 보기 좋은 크기."""
+    import io
+
+    from PIL import Image
+
+    pages = existing_pages(folder)
+    if not pages:
+        print(f"[PDF] 이미지가 없습니다: {folder}")
+        return None
+    dst = folder.with_name(folder.name + ".pdf")
+    tmp = dst.with_suffix(".pdf.tmp")
+    n = len(pages)
+    # 객체 번호: 1 카탈로그, 2 쪽 목록, 쪽 i(0부터)마다 3+3i 쪽 / 4+3i 이미지 / 5+3i 그리기
+    offsets: dict[int, int] = {}
+    with open(tmp, "wb") as f:
+        def obj(num: int, head: bytes, stream: bytes | None = None) -> None:
+            offsets[num] = f.tell()
+            f.write(b"%d 0 obj\n" % num + head)
+            if stream is not None:
+                f.write(b"\nstream\n" + stream + b"\nendstream")
+            f.write(b"\nendobj\n")
+        f.write(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+        obj(1, b"<< /Type /Catalog /Pages 2 0 R >>")
+        for i, path in enumerate(pages):
+            with Image.open(path) as im:
+                rgb = im.convert("RGB")
+            buf = io.BytesIO()
+            rgb.save(buf, "JPEG", quality=quality, optimize=True)
+            w, h = rgb.size
+            pw, ph = w * 72.0 / dpi, h * 72.0 / dpi
+            pg, img, cnt = 3 + 3 * i, 4 + 3 * i, 5 + 3 * i
+            data = buf.getvalue()
+            obj(img, b"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB "
+                     b"/BitsPerComponent 8 /Filter /DCTDecode /Length %d >>" % (w, h, len(data)), data)
+            draw = b"q %.2f 0 0 %.2f 0 0 cm /Im0 Do Q" % (pw, ph)
+            obj(cnt, b"<< /Length %d >>" % len(draw), draw)
+            obj(pg, b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %.2f %.2f] /Resources << /XObject << /Im0 %d 0 R >> >> "
+                    b"/Contents %d 0 R >>" % (pw, ph, img, cnt))
+            if (i + 1) % 20 == 0 or i + 1 == n:
+                print(f"\r[PDF] {i + 1}/{n}쪽", end="", flush=True)
+        kids = b" ".join(b"%d 0 R" % (3 + 3 * i) for i in range(n))
+        obj(2, b"<< /Type /Pages /Count %d /Kids [%s] >>" % (n, kids))
+        xref = f.tell()
+        total = 3 + 3 * n
+        f.write(b"xref\n0 %d\n0000000000 65535 f \n" % total)
+        for k in range(1, total):
+            f.write(b"%010d 00000 n \n" % offsets[k])
+        f.write(b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (total, xref))
+    tmp.replace(dst)
+    print(f"\r[PDF] {n}쪽 → {dst}")
+    return dst
+
+
 def trim_end(out: Path, yes: bool = False) -> int:
     """끝에서부터, 바로 앞 한두 장과 같은 화면인 쪽을 지운다 (마지막 쪽에서 계속 찍힌 되풀이 쪽 정리)."""
     import cv2
@@ -613,6 +669,8 @@ def parse_args(argv=None):
     ap.add_argument("-o", "--output", default="ebook_pages", help="저장 폴더 (기본: ebook_pages)")
     ap.add_argument("--test", action="store_true", help="한 장만 찍어 test_screen.png 로 저장하고 끝 (캡처 가능 여부 점검)")
     ap.add_argument("--trim-end", action="store_true", help="이미 찍은 폴더에서 끝에 되풀이된 쪽(마지막 쪽을 계속 찍은 것)만 지우고 끝")
+    ap.add_argument("--pdf", action="store_true", help="찍지 않고, 이미 찍은 이미지들로 PDF 만 다시 만들기")
+    ap.add_argument("--no-pdf", action="store_true", help="캡처가 끝난 뒤 PDF 를 만들지 않음")
     ap.add_argument("--adb", help="adb.exe 위치 (기본: LD플레이어 설치 폴더에서 자동으로 찾음)")
     ap.add_argument("--serial", help="기기 이름 (예: emulator-5554, 127.0.0.1:5555). 기본: 첫 번째 기기")
     ap.add_argument("--source", choices=["auto", "adb", "window"], default="auto",
@@ -636,9 +694,12 @@ def parse_args(argv=None):
 
 def main(argv=None) -> int:
     args = parse_args(argv)
-    if args.trim_end:  # LD플레이어 연결 없이 폴더만 정리
+    if args.trim_end or args.pdf:  # LD플레이어 연결 없이 폴더만 정리 / PDF 만들기
         from bookdir import resolve
-        return trim_end(resolve(args.output))
+        out = resolve(args.output)
+        if args.trim_end:
+            trim_end(out)
+        return 0 if make_pdf(out) or not args.pdf else 1
     try:
         adb = Adb(find_adb(args.adb), args.serial)
         print(f"연결: {adb.connect()}  (adb: {adb.exe})")
@@ -646,7 +707,13 @@ def main(argv=None) -> int:
         out = resolve(args.output)
         if args.test:
             return run_test(adb, out, args)
-        return run_capture(adb, out, args)
+        rc = run_capture(adb, out, args)
+        if not args.no_pdf and existing_pages(out):
+            try:
+                make_pdf(out)
+            except Exception as e:  # noqa: BLE001 — PDF 실패가 캡처 결과를 망치지 않게
+                print(f"[PDF] 만들지 못했습니다: {e}  (PDF만들기.bat 로 다시 시도)")
+        return rc
     except (AdbError, WindowError, subprocess.TimeoutExpired) as e:
         print(f"[오류] {e}")
         return 1

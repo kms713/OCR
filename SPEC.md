@@ -94,6 +94,7 @@ EbookOCR/                  ← 전자책 OCR
     그 안 글상자를 모두 빼고 줄을 다시 묶음(같은 줄 본문 보존), 영역은 pictures 와 캐시 `screens`(편집기 점선 그림 후보)에. `--keep-screenshots` 로 끔. fix_page_split 도 같게.
     편집기 그림 넣기: '그림 안 글 지우기'(기본 켬) — 영역 안 글상자 글을 이 쪽 글에서 띄어쓰기 차이 허용해 지움(2자 이하 건너뜀, 3~4자는 쪽에 한 번만 있을 때), 남은 1~2자 '> 주:' 줄 정리.
   fix_page_split.py / 쪽나누기_고치기.bat  예전 판 교정 글에서 앞 쪽에 붙은 다음 쪽 글을 제 쪽으로 (캐시로 build_paragraphs(merge=False) 다시 계산, 띄어쓰기·서식 무시하고 첫머리 14→9→5자 맞춤, 고치기 전 .쪽나누기전 백업)
+  PDF(ebook_capture.make_pdf, PDF만들기.bat): page_NNNN.png 차례로 쪽마다 JPEG(품질 90, 200dpi 크기) 이미지 객체를 직접 써 넣는 최소 PDF 1.4 작성기(메모리 쪽당 하나만, 155쪽 77MB). 캡처 끝에 자동(--no-pdf 로 끔), `--pdf` 는 캡처 없이 만들기. 결과 '책이름.pdf'(책 폴더 옆, ebook_ocr 는 이미지 확장자만 읽어 영향 없음).
   make_sample.py / 샘플책_만들기.bat  교정기 시험용 3쪽 샘플(쪽 이미지·cache 줄 상자·교정용.md 일부러 넣은 잘못·제안 3건)
   설치.bat, 1_캡처점검.bat, 2_캡처.bat, 3_OCR.bat, 4_교정.bat, 5_내보내기.bat, 설치_GPU.bat, 3_OCR_GPU.bat
 ```
