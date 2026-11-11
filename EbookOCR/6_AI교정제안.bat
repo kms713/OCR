@@ -10,6 +10,6 @@ if not exist ".venv\Scripts\python.exe" (
 echo.
 set /p BOOK=책 이름(위 목록 중 하나)을 입력하세요: 
 if "%BOOK%"=="" exit /b 1
-rem 기본은 NVIDIA build (키: nvidia_key.txt, 모델 google/gemma-4-31b-it). Gemini 로 하려면 6_AI교정제안_Gemini.bat
-.venv\Scripts\python.exe ebook_suggest.py "books\%BOOK%" --service nvidia %*
+rem 모델은 ai_models.txt 목록에서 고름 (자동 = 위에서부터, 막히면 다음 모델). 키: nvidia_key.txt, gemini_key.txt
+.venv\Scripts\python.exe ebook_suggest.py "books\%BOOK%" --menu %*
 pause

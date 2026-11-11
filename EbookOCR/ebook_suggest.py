@@ -42,6 +42,8 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_MODEL = "gemini-3.5-flash-lite"  # 3.8-flash 는 2026-11-07 시험에서 "hello" 한 마디에 54초·503 혼잡
 API_BASE = os.environ.get("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
 # OpenAI 형식(chat/completions) 서비스. --service nvidia 는 NVIDIA build, openai 는 --base-url 로 지정 (예: Ollama http://localhost:11434/v1)
+MAX_ATTEMPTS = 5  # 한 모델에 다시 보내는 횟수 (자동 모드에서 다음 모델이 있으면 2)
+MODELS_FILE = Path(os.environ.get("AI_MODELS_FILE") or Path(__file__).resolve().parent / "ai_models.txt")
 SERVICES = {
     "nvidia": {"base": os.environ.get("NVIDIA_API_BASE", "https://integrate.api.nvidia.com/v1"), "key_file": "nvidia_key.txt",
                "key_env": "NVIDIA_API_KEY", "model": "google/gemma-4-31b-it"},  # 2026-11-10 사용자 키 목록에 있는 다국어 모델
@@ -223,7 +225,7 @@ def call_raw(key: str, model: str, text: str, thinking: str = "", timeout: int =
     body = build_body(text, thinking, max_tokens, temperature)
     url = f"{API_BASE}/models/{model}:streamGenerateContent?alt=sse"
     opener = make_opener(no_proxy)
-    for attempt in range(5):
+    for attempt in range(MAX_ATTEMPTS):
         t0 = time.monotonic()
         try:
             return stream_once(opener, url, key, body, timeout, show)
@@ -244,16 +246,16 @@ def call_raw(key: str, model: str, text: str, thinking: str = "", timeout: int =
                 continue
             if e.code in (500, 502, 503, 504):
                 wait = 10 * (attempt + 1)
-                print(f"\n  서버 혼잡·일시 오류 ({e.code}) — {wait}초 뒤 다시 시도합니다 ({attempt + 1}/5)", flush=True)
-                if attempt == 4:
+                print(f"\n  서버 혼잡·일시 오류 ({e.code}) — {wait}초 뒤 다시 시도합니다 ({attempt + 1}/{MAX_ATTEMPTS})", flush=True)
+                if attempt == MAX_ATTEMPTS - 1:
                     raise RuntimeError(f"서버가 계속 바쁩니다 ({e.code}). 잠시 뒤 다시 하거나 --model 로 다른 모델을 쓰세요.")
                 time.sleep(wait)
                 continue
             raise RuntimeError(f"API 오류 {e.code}: {detail[:300]}")
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             why = getattr(e, "reason", e)
-            print(f"\n  응답 실패 ({time.monotonic() - t0:.0f}초 후): {why} — 다시 시도합니다 ({attempt + 1}/5)", flush=True)
-            if attempt == 4:
+            print(f"\n  응답 실패 ({time.monotonic() - t0:.0f}초 후): {why} — 다시 시도합니다 ({attempt + 1}/{MAX_ATTEMPTS})", flush=True)
+            if attempt == MAX_ATTEMPTS - 1:
                 hint = "" if no_proxy else "\n  curl 은 되는데 이렇게 멈추면 --no-proxy 를 붙여 보세요. 먼저 --check 로 점검할 수 있습니다."
                 raise RuntimeError(f"연결 실패: {why}{hint}")
             time.sleep(5 * (attempt + 1))
@@ -267,7 +269,7 @@ def call_raw_oai(base: str, key: str, model: str, text: str, timeout: int = 90, 
             "temperature": 0.2 if temperature is None else temperature}  # 교정은 낮은 온도가 안전 (Gemini 3 와 달리 루프 문제 없음)
     url = base.rstrip("/") + "/chat/completions"
     opener = make_opener(no_proxy)
-    for attempt in range(5):
+    for attempt in range(MAX_ATTEMPTS):
         t0 = time.monotonic()
         req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), method="POST",
                                      headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}",
@@ -318,16 +320,16 @@ def call_raw_oai(base: str, key: str, model: str, text: str, timeout: int = 90, 
                 continue
             if e.code in (500, 502, 503, 504):
                 wait = 10 * (attempt + 1)
-                print(f"\n  서버 혼잡·일시 오류 ({e.code}) — {wait}초 뒤 다시 시도합니다 ({attempt + 1}/5)", flush=True)
-                if attempt == 4:
+                print(f"\n  서버 혼잡·일시 오류 ({e.code}) — {wait}초 뒤 다시 시도합니다 ({attempt + 1}/{MAX_ATTEMPTS})", flush=True)
+                if attempt == MAX_ATTEMPTS - 1:
                     raise RuntimeError(f"서버가 계속 바쁩니다 ({e.code}). 잠시 뒤 다시 하거나 --model 로 다른 모델을 쓰세요.")
                 time.sleep(wait)
                 continue
             raise RuntimeError(f"API 오류 {e.code}: {detail[:300]}")
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             why = getattr(e, "reason", e)
-            print(f"\n  응답 실패 ({time.monotonic() - t0:.0f}초 후): {why} — 다시 시도합니다 ({attempt + 1}/5)", flush=True)
-            if attempt == 4:
+            print(f"\n  응답 실패 ({time.monotonic() - t0:.0f}초 후): {why} — 다시 시도합니다 ({attempt + 1}/{MAX_ATTEMPTS})", flush=True)
+            if attempt == MAX_ATTEMPTS - 1:
                 raise RuntimeError(f"연결 실패: {why}")
             time.sleep(5 * (attempt + 1))
     raise RuntimeError("API 호출이 계속 실패했습니다")
@@ -453,11 +455,71 @@ def save_store(path: Path, store: dict) -> None:
     tmp.replace(path)
 
 
+def load_model_list() -> list[dict]:
+    """ai_models.txt → [{service, model, note}]."""
+    out = []
+    try:
+        lines = MODELS_FILE.read_bytes().decode("utf-8-sig").splitlines()
+    except OSError:
+        lines = ["nvidia google/gemma-4-31b-it", f"gemini {DEFAULT_MODEL}"]
+    for line in lines:
+        t = line.strip()
+        if not t or t.startswith("#"):
+            continue
+        parts = t.split(None, 2)
+        if len(parts) >= 2 and parts[0] in ("nvidia", "gemini", "openai"):
+            out.append({"service": parts[0], "model": parts[1], "note": parts[2] if len(parts) > 2 else ""})
+    return out
+
+
+def use_model(args, m: dict, rpm_user: float | None) -> None:
+    """args 를 이 모델로 바꾼다 (서비스·주소·분당 호출 수)."""
+    args.service, args.model = m["service"], m["model"]
+    if args.service != "gemini":
+        args.base_url = args.base_url_user or SERVICES[args.service]["base"]
+    args.rpm = rpm_user or {"gemini": 15, "nvidia": 30}.get(args.service, 60)
+
+
+def pick_menu(models: list[dict]) -> str:
+    print("AI 교정 제안 — 쓸 모델을 고르세요 (ai_models.txt 에서 바꿀 수 있음)")
+    for i, m in enumerate(models, start=1):
+        ok = "" if load_key(m["service"]) else "  [키 없음]"
+        print(f"  {i}. {m['model']:<38} {m['note']}{ok}")
+    print("  A. 자동 — 위에서부터 쓰다가 막히면 다음 모델로 (기본)")
+    print("  C. 모든 모델 점검 — 지금 되는 모델·막힌 모델 확인")
+    try:
+        return input("번호 또는 A / C (그냥 Enter = A): ").strip().upper() or "A"
+    except EOFError:
+        return "A"
+
+
+def check_all(args, models: list[dict], rpm_user) -> int:
+    global MAX_ATTEMPTS
+    MAX_ATTEMPTS = 1
+    print("모든 모델 점검 (모델마다 짧은 글 한 번, 최대 40초):")
+    for m in models:
+        key = load_key(m["service"])
+        if not key:
+            print(f"  ✗ {m['model']:<38} 키 없음")
+            continue
+        use_model(args, m, rpm_user)
+        try:
+            txt, finish, u = ask_model(args, key, 'JSON 으로만 답하라: {"ok": true}', 256, 40, show=False)
+            sec = u.get("_total_sec", 0)
+            print(f"  {'✓' if txt.strip() else '?'} {m['model']:<38} {sec:.1f}초" + ("" if txt.strip() else " (빈 답)"))
+        except (RuntimeError, QuotaDaily) as e:
+            print(f"  ✗ {m['model']:<38} {str(e).splitlines()[0][:90]}")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Gemini 로 맞춤법·OCR 교정 '제안' 만들기 (원문은 그대로)")
     ap.add_argument("folder", nargs="?", help="page_0001.png ... 가 들어 있는 폴더 (결과 폴더는 <폴더>_OCR)")
     ap.add_argument("-o", "--output", help="OCR 결과 폴더")
     ap.add_argument("--title")
+    ap.add_argument("--menu", action="store_true", help="ai_models.txt 의 모델 목록에서 골라 쓰기 (6_AI교정제안.bat)")
+    ap.add_argument("--auto", action="store_true", help="ai_models.txt 의 모델을 위에서부터 쓰다가 막히면 다음 모델로")
+    ap.add_argument("--check-all", action="store_true", help="ai_models.txt 의 모든 모델을 짧게 불러 되는지 확인")
     ap.add_argument("--service", default="gemini", choices=["gemini", "nvidia", "openai"],
                     help="AI 서비스: gemini(기본) / nvidia (NVIDIA build, 키는 nvidia_key.txt) / openai (OpenAI 형식, --base-url)")
     ap.add_argument("--base-url", help="openai 서비스 주소 (예: Ollama http://localhost:11434/v1)")
@@ -480,6 +542,30 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if args.thinking == "none":  # PowerShell 은 빈 "" 를 넘기지 않으므로 none 으로도 받는다
         args.thinking = ""
+    rpm_user = args.rpm
+    args.base_url_user = args.base_url
+    models = load_model_list()
+    chain: list[dict] = []
+    if args.menu:
+        c = pick_menu(models)
+        if c == "C":
+            args.check_all = True
+        elif c == "A":
+            args.auto = True
+        elif c.isdigit() and 1 <= int(c) <= len(models):
+            chain = [models[int(c) - 1]]
+        else:
+            print("잘못 고르셨습니다.")
+            return 1
+    if args.check_all:
+        return check_all(args, models, rpm_user)
+    if args.auto:
+        chain = [m for m in models if load_key(m["service"])]
+        if not chain:
+            print("[오류] 키가 있는 모델이 없습니다. nvidia_key.txt 또는 gemini_key.txt 를 만드세요.")
+            return 1
+    if chain:
+        use_model(args, chain[0], rpm_user)
     if args.rpm is None:
         args.rpm = {"gemini": 15, "nvidia": 30}.get(args.service, 60)
     if args.service == "gemini":
@@ -490,7 +576,7 @@ def main(argv=None) -> int:
         if not args.model and args.model_filter is None:
             ap.error("--model 로 모델 이름을 지정하세요 (목록: --list-models)")
 
-    if not args.folder and not args.check and args.model_filter is None:
+    if not args.folder and not args.check and args.model_filter is None and not args.check_all:
         ap.error("책 폴더를 지정하세요 (연결 점검만 할 때는 --check, 모델 목록은 --list-models)")
     from bookdir import resolve, result_dir
     folder = resolve(args.folder or "books/_")
@@ -512,12 +598,13 @@ def main(argv=None) -> int:
 
     store_path = out_dir / f"{title}_제안.json"
     store = load_store(store_path)
-    if args.redo:  # 다시 검사: 같은 모델로 하던 다시 검사가 멈춰 있으면 거기서 이어서
+    label = "자동" if len(chain) > 1 else args.model
+    if args.redo:  # 다시 검사: 같은 모델(자동이면 '자동')로 하던 다시 검사가 멈춰 있으면 거기서 이어서
         redo = store.get("redo")
-        if redo and redo.get("model") == args.model and redo.get("done"):
-            print(f"멈췄던 다시 검사(모델 {args.model})를 이어서 합니다 — 이미 끝낸 문단 {len(redo['done'])}개는 건너뜁니다")
+        if redo and redo.get("model") == label and redo.get("done"):
+            print(f"멈췄던 다시 검사({label})를 이어서 합니다 — 이미 끝낸 문단 {len(redo['done'])}개는 건너뜁니다")
         else:
-            redo = store["redo"] = {"model": args.model, "done": []}
+            redo = store["redo"] = {"model": label, "done": []}
         done = set(redo["done"])
     else:
         done = set(store["checked"])
@@ -532,6 +619,11 @@ def main(argv=None) -> int:
             save_store(store_path, store)
         print("검사할 새 문단이 없습니다.")
         return 0
+    global MAX_ATTEMPTS
+    ci = 0  # 자동 모드: 지금 쓰는 모델 번호
+    if len(chain) > 1:
+        MAX_ATTEMPTS = 2  # 막히면 오래 붙잡지 말고 다음 모델로
+        print("자동: " + " → ".join(m["model"] for m in chain))
     print(f"{args.service} · 모델 {args.model} · 문단 {len(paras)}개를 {len(chunks)}번에 나눠 보냅니다 (분당 {args.rpm:g}회 이하)")
     gap = 60.0 / max(0.1, args.rpm)
     last = 0.0
@@ -548,28 +640,41 @@ def main(argv=None) -> int:
         print(f"\r  {i}/{len(chunks)} 덩어리 보내는 중... (응답이 올 때까지 최대 {args.timeout}초)", end="", flush=True)
         t_call = time.monotonic()
         try:
-            try:
-                res = call_gemini(key, args.model, text, args.thinking, args.timeout, max_tokens,
-                                  args.temperature, args.no_proxy, args)
-            except BadReply as e:  # 작은 모델은 가끔 형식이 깨진 답을 보냄 → 한 번 더
-                print(f"\n  {i}번째 덩어리 답을 못 써서 한 번 더 보냅니다 ({str(e)[:60]})", flush=True)
-                time.sleep(gap)
-                last = time.monotonic()
-                res = call_gemini(key, args.model, text, args.thinking, args.timeout, max_tokens,
-                                  args.temperature, args.no_proxy, args)
+            while True:
+                try:
+                    try:
+                        res = call_gemini(key, args.model, text, args.thinking, args.timeout, max_tokens,
+                                          args.temperature, args.no_proxy, args)
+                    except BadReply as e:  # 작은 모델은 가끔 형식이 깨진 답을 보냄 → 한 번 더
+                        print(f"\n  {i}번째 덩어리 답을 못 써서 한 번 더 보냅니다 ({str(e)[:60]})", flush=True)
+                        time.sleep(gap)
+                        last = time.monotonic()
+                        res = call_gemini(key, args.model, text, args.thinking, args.timeout, max_tokens,
+                                          args.temperature, args.no_proxy, args)
+                    break
+                except (RuntimeError, QuotaDaily) as e:
+                    if ci + 1 >= len(chain):
+                        raise
+                    ci += 1  # 자동 모드: 같은 덩어리를 다음 모델로
+                    print(f"\n  [{args.model}] 막힘: {str(e).splitlines()[0][:80]}\n  → 다음 모델 {chain[ci]['model']} 로 같은 덩어리를 다시 보냅니다", flush=True)
+                    use_model(args, chain[ci], rpm_user)
+                    if args.service == "gemini":
+                        args.thinking = ""
+                    key = load_key(args.service)
+                    gap = 60.0 / max(0.1, args.rpm)
         except BadReply as e:
             print(f"\n  [건너뜀] {i}번째 덩어리: {e}  (검사 안 한 것으로 남겨 다음에 다시 보냅니다)")
             n_bad += 1
             continue
         except QuotaDaily as e:
             save_store(store_path, store)
-            other = "6_AI교정제안_Gemini.bat" if args.service != "gemini" else "6_AI교정제안.bat (NVIDIA)"
-            print(f"\n[중단] 사용 한도에 도달했습니다. 나중에 같은 명령을 다시 실행하면 이어서 합니다.\n"
-                  f"  기다리기 싫으면 {other} 로 바로 이어 할 수도 있습니다 (검사한 문단은 서비스와 상관없이 건너뜀).\n  {e}")
+            print(f"\n[중단] 사용 한도에 도달했습니다. 나중에 다시 실행하면 이어서 합니다.\n"
+                  f"  기다리기 싫으면 6_AI교정제안.bat 에서 다른 모델이나 '자동'을 고르세요 (검사한 문단은 건너뜀).\n  {e}")
             return 2
         except RuntimeError as e:
             save_store(store_path, store)
-            print(f"\n[오류] {e}\n  지금까지 결과는 저장했습니다. 다시 실행하면 이어서 합니다.")
+            print(f"\n[오류] {e}\n  지금까지 결과는 저장했습니다. 다시 실행하면 이어서 합니다."
+                  + ("" if len(chain) > 1 else " 6_AI교정제안.bat 에서 다른 모델이나 '자동'을 골라도 됩니다."))
             return 1
         for r in res:
             orig = ids.get(str(r["id"]).strip("[] "))
