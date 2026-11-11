@@ -503,20 +503,25 @@ def run_capture(adb: Adb, out: Path, args) -> int:
     print(f"캡처 시작 → {out.resolve()}   (멈추려면 Ctrl+C)")
     started = time.monotonic()
     saved = 0
+    recent: list[np.ndarray] = []  # 최근 저장한 쪽들 (마지막 쪽에서 메뉴·안내가 떴다 사라지며 같은 화면이 되풀이되는 것 막기)
+    repeats = 0
+    dup = False  # 지금 화면이 앞에서 저장한 화면과 같음 → 저장하지 않고 한 번 더 넘겨 봄
     try:
         while True:
-            num += 1
-            path = out / f"page_{num:04d}.png"
-            save_png(crop(img, box), path)
-            saved += 1
-            print(f"\r  {path.name} 저장 ({saved}장, {time.monotonic() - started:.0f}초)", end="", flush=True)
-            if os.name == "nt":  # 작업 표시줄에서도 진행 상황이 보이게
-                import ctypes
+            if not dup:
+                num += 1
+                path = out / f"page_{num:04d}.png"
+                save_png(crop(img, box), path)
+                saved += 1
+                recent = (recent + [page_sig(img)])[-4:]
+                print(f"\r  {path.name} 저장 ({saved}장, {time.monotonic() - started:.0f}초)", end="", flush=True)
+                if os.name == "nt":  # 작업 표시줄에서도 진행 상황이 보이게
+                    import ctypes
 
-                ctypes.windll.kernel32.SetConsoleTitleW(f"전자책 캡처 - {saved}장 ({path.name})")
-            if args.max_pages and saved >= args.max_pages:
-                print(f"\n--max-pages {args.max_pages} 에 도달해 멈춥니다.")
-                break
+                    ctypes.windll.kernel32.SetConsoleTitleW(f"전자책 캡처 - {saved}장 ({path.name})")
+                if args.max_pages and saved >= args.max_pages:
+                    print(f"\n--max-pages {args.max_pages} 에 도달해 멈춥니다.")
+                    break
 
             prev = page_sig(img)
             nxt = None
@@ -533,6 +538,15 @@ def run_capture(adb: Adb, out: Path, args) -> int:
             if looks_blank(nxt):
                 print("\n[중단] 화면이 검은색으로 바뀌었습니다 (캡처 차단 또는 뷰어 종료).")
                 break
+            dup = any(not differs(r, page_sig(nxt)) for r in recent)
+            if dup:
+                repeats += 1  # 앞에서 이미 저장한 화면으로 돌아옴 = 실제로는 안 넘어감
+                if repeats >= 2:
+                    print(f"\n앞에서 찍은 화면이 되풀이되어 마지막 쪽으로 판단하고 끝냅니다. (총 {saved}장)"
+                          "\n  마지막 한두 장이 메뉴·안내 화면이면 지우세요 (--trim-end 로 끝의 되풀이 쪽 정리).")
+                    break
+            else:
+                repeats = 0
             img = nxt
     except WindowError as e:
         print(f"\n[중단] {e} (다시 실행하면 이어 찍습니다)")
@@ -541,10 +555,40 @@ def run_capture(adb: Adb, out: Path, args) -> int:
     return 0
 
 
+def trim_end(out: Path, yes: bool = False) -> int:
+    """끝에서부터, 바로 앞 한두 장과 같은 화면인 쪽을 지운다 (마지막 쪽에서 계속 찍힌 되풀이 쪽 정리)."""
+    import cv2
+
+    pages = existing_pages(out)
+    if len(pages) < 3:
+        print("정리할 쪽이 없습니다.")
+        return 0
+    sig = lambda f: signature(cv2.imdecode(np.fromfile(str(f), np.uint8), cv2.IMREAD_COLOR))  # noqa: E731
+    sigs = {}
+    get = lambda i: sigs.setdefault(i, sig(pages[i]))  # noqa: E731
+    k = len(pages) - 1
+    while k >= 2 and (not differs(get(k), get(k - 1)) or not differs(get(k), get(k - 2))):
+        k -= 1
+    drop = pages[k + 1:]
+    if not drop:
+        print(f"끝에 되풀이된 쪽이 없습니다. 마지막: {pages[-1].name}")
+        return 0
+    print(f"끝의 되풀이 쪽 {len(drop)}장: {drop[0].name} ~ {drop[-1].name}  (남는 마지막 쪽: {pages[k].name})")
+    print("  남는 마지막 쪽이 메뉴·안내 화면이면 그 한 장은 직접 지우세요.")
+    if not yes and input("지울까요? [y/N] ").strip().lower() != "y":
+        print("그대로 두었습니다.")
+        return 0
+    for f in drop:
+        f.unlink()
+    print(f"{len(drop)}장을 지웠습니다.")
+    return 0
+
+
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description="LD플레이어 전자책 뷰어를 한 쪽씩 넘기며 스크린샷 저장")
     ap.add_argument("-o", "--output", default="ebook_pages", help="저장 폴더 (기본: ebook_pages)")
     ap.add_argument("--test", action="store_true", help="한 장만 찍어 test_screen.png 로 저장하고 끝 (캡처 가능 여부 점검)")
+    ap.add_argument("--trim-end", action="store_true", help="이미 찍은 폴더에서 끝에 되풀이된 쪽(마지막 쪽을 계속 찍은 것)만 지우고 끝")
     ap.add_argument("--adb", help="adb.exe 위치 (기본: LD플레이어 설치 폴더에서 자동으로 찾음)")
     ap.add_argument("--serial", help="기기 이름 (예: emulator-5554, 127.0.0.1:5555). 기본: 첫 번째 기기")
     ap.add_argument("--source", choices=["auto", "adb", "window"], default="auto",
@@ -566,6 +610,9 @@ def parse_args(argv=None):
 
 def main(argv=None) -> int:
     args = parse_args(argv)
+    if args.trim_end:  # LD플레이어 연결 없이 폴더만 정리
+        from bookdir import resolve
+        return trim_end(resolve(args.output))
     try:
         adb = Adb(find_adb(args.adb), args.serial)
         print(f"연결: {adb.connect()}  (adb: {adb.exe})")
