@@ -8,6 +8,10 @@ if not exist ".venv\Scripts\python.exe" (
 )
 set /p BOOK=책 이름(저장 폴더 이름)을 입력하세요: 
 if "%BOOK%"=="" exit /b 1
+set "PAGES="
+set /p PAGES=모두 몇 장 찍을까요? (책의 쪽 수. 모르면 그냥 Enter = 자동으로 끝 판단): 
+set "PAGEOPT="
+if not "%PAGES%"=="" set "PAGEOPT=--pages %PAGES%"
 rem 잘라낼 영역이 있으면 아래 줄 끝에 --crop x1,y1,x2,y2 를 붙이세요 (예: --crop 0,120,1600,2440)
-.venv\Scripts\python.exe ebook_capture.py -o "books\%BOOK%" %*
+.venv\Scripts\python.exe ebook_capture.py -o "books\%BOOK%" %PAGEOPT% %*
 pause

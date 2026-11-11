@@ -354,6 +354,13 @@ def looks_blank(img: np.ndarray) -> bool:
     return float(g.mean()) < 8 and float(g.std()) < 4
 
 
+def looks_white(img: np.ndarray) -> bool:
+    """거의 백지인 화면 (글자·그림이 화면의 0.3% 미만)."""
+    g = img.mean(axis=2)
+    bg = float(np.median(g))
+    return bg > 200 and float((np.abs(g - bg) > 60).mean()) < 0.003
+
+
 def save_png(img: np.ndarray, path: Path) -> None:
     """한글 경로에서도 저장되도록 인코딩 후 바이트로 쓴다."""
     import cv2
@@ -469,6 +476,9 @@ def run_capture(adb: Adb, out: Path, args) -> int:
     done = existing_pages(out)
     num = int(done[-1].stem.split("_")[1]) if done else 0
 
+    if args.pages and num >= args.pages:
+        print(f"이미 {num}장이 있어 정한 장 수({args.pages}장)를 채웠습니다.")
+        return 0
     grab, img, mode = pick_source(adb, args)
     if looks_blank(img):
         print("[중단] 화면이 검은색입니다. --test 로 먼저 확인하세요.")
@@ -522,6 +532,9 @@ def run_capture(adb: Adb, out: Path, args) -> int:
                 if args.max_pages and saved >= args.max_pages:
                     print(f"\n--max-pages {args.max_pages} 에 도달해 멈춥니다.")
                     break
+                if args.pages and num >= args.pages:
+                    print(f"\n정한 장 수({args.pages}장)를 다 찍어 끝냅니다.")
+                    break
 
             prev = page_sig(img)
             nxt = None
@@ -532,13 +545,24 @@ def run_capture(adb: Adb, out: Path, args) -> int:
                 if got is not None and differs(prev, page_sig(got)):
                     nxt = got
                     break
+            if nxt is None and args.pages:  # 장 수를 정했으면: 안 바뀌어도 넘어간 것으로 보고 그대로 저장 (연속 백지 등)
+                dup = False
+                continue
+            if nxt is None and looks_white(img):  # 백지가 연속이면 넘겨도 똑같아 보임 → 몇 번 더 넘겨 본다
+                for _ in range(4):
+                    turn()
+                    got = wait_change(grab, prev, page_sig, args)
+                    if got is not None and differs(prev, page_sig(got)):
+                        nxt = got
+                        break
             if nxt is None:
-                print(f"\n넘겨도 화면이 바뀌지 않아 마지막 쪽으로 판단하고 끝냅니다. (총 {saved}장)")
+                print(f"\n넘겨도 화면이 바뀌지 않아 마지막 쪽으로 판단하고 끝냅니다. (총 {saved}장)"
+                      "\n  책 중간에서 멈췄다면(연속 백지 등) 2_캡처.bat 에서 찍을 장 수를 넣고 다시 실행하세요 (이어 찍기).")
                 break
             if looks_blank(nxt):
                 print("\n[중단] 화면이 검은색으로 바뀌었습니다 (캡처 차단 또는 뷰어 종료).")
                 break
-            dup = any(not differs(r, page_sig(nxt)) for r in recent)
+            dup = not args.pages and any(not differs(r, page_sig(nxt)) for r in recent)
             if dup:
                 repeats += 1  # 앞에서 이미 저장한 화면으로 돌아옴 = 실제로는 안 넘어감
                 if repeats >= 2:
@@ -605,6 +629,8 @@ def parse_args(argv=None):
     ap.add_argument("--timeout", type=float, default=4.0, help="넘긴 뒤 화면이 바뀌길 기다리는 최대 시간(초, 기본 4)")
     ap.add_argument("--end-retries", type=int, default=1, help="안 넘어갈 때 다시 넘겨 볼 횟수 (기본 1)")
     ap.add_argument("--max-pages", type=int, default=0, help="이번 실행에서 저장할 최대 쪽수 (기본 0=끝까지)")
+    ap.add_argument("--pages", type=int, default=0,
+                    help="이 책을 모두 몇 장 찍을지 (폴더의 장 수가 이만큼 되면 끝). 정하면 화면이 안 바뀌어도(연속 백지) 넘겨 찍음")
     return ap.parse_args(argv)
 
 
