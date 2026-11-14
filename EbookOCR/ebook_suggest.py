@@ -43,6 +43,9 @@ DEFAULT_MODEL = "gemini-3.5-flash-lite"  # 3.8-flash 는 2026-11-07 시험에서
 API_BASE = os.environ.get("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
 # OpenAI 형식(chat/completions) 서비스. --service nvidia 는 NVIDIA build, openai 는 --base-url 로 지정 (예: Ollama http://localhost:11434/v1)
 MAX_ATTEMPTS = 5  # 한 모델에 다시 보내는 횟수 (자동 모드에서 다음 모델이 있으면 2)
+NO_THINKING: set[str] = set()  # 사고 수준 설정을 거부한 모델 (다음부터 안 보냄)
+NO_JSON_MIME: set[str] = set()  # JSON 전용 답 설정을 거부한 모델
+NEED_MINIMAL: set[str] = set()  # 생각만 하다 출력 한도를 다 써서, 생각을 최소로 해야 답하는 모델
 MODELS_FILE = Path(os.environ.get("AI_MODELS_FILE") or Path(__file__).resolve().parent / "ai_models.txt")
 SERVICES = {
     "nvidia": {"base": os.environ.get("NVIDIA_API_BASE", "https://integrate.api.nvidia.com/v1"), "key_file": "nvidia_key.txt",
@@ -222,7 +225,11 @@ def stream_once(opener, url: str, key: str, body: dict, timeout: int, show: bool
 
 def call_raw(key: str, model: str, text: str, thinking: str = "", timeout: int = 90, max_tokens: int = 8192,
              temperature: float | None = None, no_proxy: bool = False, show: bool = True) -> tuple[str, str, dict]:
-    body = build_body(text, thinking, max_tokens, temperature)
+    if thinking and model in NEED_MINIMAL:
+        thinking = "minimal"
+    body = build_body(text, "" if model in NO_THINKING else thinking, max_tokens, temperature)
+    if model in NO_JSON_MIME:
+        body["generationConfig"].pop("responseMimeType", None)
     url = f"{API_BASE}/models/{model}:streamGenerateContent?alt=sse"
     opener = make_opener(no_proxy)
     for attempt in range(MAX_ATTEMPTS):
@@ -243,10 +250,12 @@ def call_raw(key: str, model: str, text: str, thinking: str = "", timeout: int =
             if e.code == 400 and "thinkingConfig" in body["generationConfig"] and "think" in detail.lower():
                 print("\n  이 모델은 사고 수준 설정을 받지 않아 빼고 다시 보냅니다 (--thinking 없이)")
                 del body["generationConfig"]["thinkingConfig"]
+                NO_THINKING.add(model)
                 continue
             if e.code == 400 and "responseMimeType" in body["generationConfig"] and re.search(r"json|mime", detail, re.I):
                 print("\n  이 모델은 JSON 전용 답 설정을 받지 않아 빼고 다시 보냅니다 (Gemma 등)")
                 del body["generationConfig"]["responseMimeType"]
+                NO_JSON_MIME.add(model)
                 continue
             if e.code in (500, 502, 503, 504):
                 wait = 10 * (attempt + 1)
@@ -352,6 +361,19 @@ def call_gemini(key: str, model: str, text: str, thinking: str = "", timeout: in
     else:
         txt, finish, _ = call_raw(key, model, PROMPT + text, thinking, timeout, max_tokens, temperature, no_proxy)
     txt = re.sub(r"<think>.*?</think>", "", txt, flags=re.S)  # 생각 과정을 글로 내놓는 모델 (DeepSeek-R1 등)
+    if finish == "MAX_TOKENS" and not txt.strip() and args is not None and args.service == "gemini" \
+            and args.model not in NO_THINKING and args.thinking != "minimal":
+        # 답을 쓰기 전에 생각만 하다 출력 한도를 다 씀 (Gemini 3 이후는 생각도 출력 한도에 들어감) → 생각 최소·한도 2배
+        print(f"\n  [{args.model}] 생각만 하다 출력 한도를 다 썼습니다 → 생각을 최소로 줄이고 한 번 더 보냅니다", flush=True)
+        saved_thinking = args.thinking
+        args.thinking = "minimal"
+        try:
+            txt, finish, _ = ask_model(args, key, PROMPT + text, max_tokens * 2, timeout)
+        finally:
+            args.thinking = saved_thinking
+        txt = re.sub(r"<think>.*?</think>", "", txt, flags=re.S)
+        if txt.strip():
+            NEED_MINIMAL.add(args.model)  # 이번 실행 동안 이 모델은 처음부터 생각 최소로
     if finish == "MAX_TOKENS":
         raise BadReply("답이 출력 한도에서 잘렸습니다 (같은 말 되풀이 가능성). --chunk-chars 를 줄이거나 --max-tokens 를 늘리세요.")
     if finish.startswith("BLOCKED") or finish in ("SAFETY", "RECITATION", "PROHIBITED_CONTENT", "OTHER"):
@@ -506,6 +528,8 @@ def use_model(args, m: dict, rpm_user: float | None) -> None:
     if args.service != "gemini":
         args.base_url = args.base_url_user or SERVICES[args.service]["base"]
     args.rpm = rpm_user or {"gemini": 15, "nvidia": 30}.get(args.service, 60)
+    # 사고 수준: 정하지 않았으면 Gemini 는 low (생각이 길면 출력 한도를 다 써 답이 비는 모델이 있어서). 거부하는 모델은 자동으로 뺌
+    args.thinking = args.thinking_user if args.thinking_user is not None else ("low" if args.service == "gemini" else "")
 
 
 def pick_menu(models: list[dict]) -> str:
@@ -554,7 +578,7 @@ def main(argv=None) -> int:
     ap.add_argument("--model", default=None, help=f"모델 이름 (gemini 기본 {DEFAULT_MODEL}, nvidia 기본 {SERVICES['nvidia']['model']})")
     ap.add_argument("--list-models", nargs="?", const="", default=None, metavar="찾을말", dest="model_filter",
                     help="이 키로 쓸 수 있는 모델 목록만 보여 줌 (예: --list-models qwen)")
-    ap.add_argument("--thinking", default="none", choices=["", "none", "minimal", "low", "medium", "high"],
+    ap.add_argument("--thinking", default=None, choices=["", "none", "minimal", "low", "medium", "high"],
                     help="사고 수준 (기본 none = 보내지 않음). 모델이 받지 않으면 자동으로 뺌")
     ap.add_argument("--timeout", type=int, default=90, help="응답 조각 사이 대기 제한(초, 기본 90)")
     ap.add_argument("--max-tokens", type=int, default=0, help="한 번 답의 최대 토큰 (0 = 보낸 글자 수에 맞춰 자동)")
@@ -570,6 +594,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if args.thinking == "none":  # PowerShell 은 빈 "" 를 넘기지 않으므로 none 으로도 받는다
         args.thinking = ""
+    args.thinking_user = args.thinking  # None = 모델에 맞춰 자동 (gemini: low)
     rpm_user = args.rpm
     args.base_url_user = args.base_url
     models = load_model_list()
@@ -594,6 +619,8 @@ def main(argv=None) -> int:
             return 1
     if chain:
         use_model(args, chain[0], rpm_user)
+    elif args.thinking is None:
+        args.thinking = "low" if args.service == "gemini" else ""
     if args.rpm is None:
         args.rpm = {"gemini": 15, "nvidia": 30}.get(args.service, 60)
     if args.service == "gemini":
@@ -680,8 +707,6 @@ def main(argv=None) -> int:
             if k >= 0 and k != ci:
                 ci = k
                 use_model(args, chain[ci], rpm_user)
-                if args.service == "gemini":
-                    args.thinking = ""
                 key = load_key(args.service)
                 gap = 60.0 / max(0.1, args.rpm)
                 print(f"\n  → {chain[ci]['model']} 로 돌아갑니다", flush=True)
@@ -714,8 +739,6 @@ def main(argv=None) -> int:
                     print(f"\n  [{args.model}] 막힘 ({why}): {msg.splitlines()[0][:80]}\n  → {chain[k]['model']} 로 같은 덩어리를 다시 보냅니다", flush=True)
                     ci = k
                     use_model(args, chain[ci], rpm_user)
-                    if args.service == "gemini":
-                        args.thinking = ""
                     key = load_key(args.service)
                     gap = 60.0 / max(0.1, args.rpm)
         except BadReply as e:
