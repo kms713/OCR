@@ -17,7 +17,7 @@ gemini  gemini-3.5-flash                   중간 (Gemini)
 nvidia  moonshotai/kimi-k2.6               큰 모델, 느릴 수 있음 (NVIDIA)
 nvidia  mistralai/mistral-large-4-1t-a52b  큰 모델 (NVIDIA)
 gemini  gemini-3.8-flash                   품질 좋으나 느리고 하루 한도 작음 (Gemini)
+gemini  gemini-4-argon                    고성능(Pro 대체), 느리고 무료 한도 작을 수 있음 (Gemini)
+gemini  gemini-4-carbon                   최고 성능(argon 위), 느리고 무료 한도 작을 수 있음 (Gemini)
 # gemini  gemini-flash-latest              최신 flash 별명 (3.8 과 같을 수 있음)
-# gemini  gemini-4-carbon                  정체 확인 필요 — 점검(C)으로 되는지 보고 # 을 지우세요
-# gemini  gemini-4-argon                   정체 확인 필요
 # gemini  gemma-4-26b-a4b-it               Gemma 4 작은 판
