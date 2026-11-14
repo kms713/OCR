@@ -121,6 +121,19 @@ class BookPages:
         return f"앞{c}" if n is None else str(n)
 
 
+def inactive_pages(cfg: dict | None, n_pages: int) -> set[int]:
+    """교정·내보내기에서 빠지는 캡처 쪽: 뺀 쪽 + 제외한 챕터의 쪽 (챕터는 다음 챕터 시작 쪽 앞까지)."""
+    if not cfg:
+        return set()
+    out = set(cfg["skip_pages"])
+    chs = sorted(cfg["chapters"], key=lambda c: c["capture"])
+    for i, c in enumerate(chs):
+        if c["exclude"]:
+            end = chs[i + 1]["capture"] - 1 if i + 1 < len(chs) else n_pages
+            out.update(range(c["capture"], end + 1))
+    return out
+
+
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}  # ebook_ocr.py 와 같게 유지
 
 

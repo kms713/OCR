@@ -76,11 +76,21 @@ def para_id(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:10]
 
 
-def read_paragraphs(md: str) -> list[str]:
-    """교정 글에서 본문 문단만 뽑는다 (제목·쪽 표시·그림·각주 줄 제외). 같은 문단은 한 번만."""
+PAGE_NO = re.compile(r"^<!--\s*p\.(\d+)")
+
+
+def read_paragraphs(md: str, skip_pages=frozenset()) -> list[str]:
+    """교정 글에서 본문 문단만 뽑는다 (제목·쪽 표시·그림·각주 줄 제외). 같은 문단은 한 번만.
+    skip_pages: 뺀 쪽·제외한 챕터의 캡처 쪽 번호 (장 설정). 그 쪽 글은 보내지 않는다."""
     out, seen = [], set()
+    page = 0
     for raw in md.replace("\r\n", "\n").replace(SOFT, "").split("\n"):
         t = raw.strip()
+        m = PAGE_NO.match(t)
+        if m:
+            page = int(m.group(1))
+        if page in skip_pages:
+            continue
         if not t or t.startswith(("#", ">", "|")) or PAGE_MARK.match(t) or FIGURE.match(t):  # | : 표 줄은 보내지 않음
             continue
         if len(re.findall(r"[가-힣A-Za-z]", t)) < 4 or t in seen:
@@ -663,7 +673,16 @@ def main(argv=None) -> int:
         done = set(redo["done"])
     else:
         done = set(store["checked"])
-    paras = [p for p in read_paragraphs(src.read_bytes().decode("utf-8")) if para_id(p) not in done]
+    import bookpages
+    try:
+        cfg = bookpages.load_config(bookpages.config_path(out_dir, title))
+    except ValueError as e:
+        print(f"[주의] {e} — 장 설정은 무시합니다")
+        cfg = None
+    skip = bookpages.inactive_pages(cfg, bookpages.count_pages(folder))
+    if skip:
+        print(f"장 설정: 뺀 쪽·제외한 챕터의 {len(skip)}쪽은 검사하지 않습니다")
+    paras = [p for p in read_paragraphs(src.read_bytes().decode("utf-8"), skip) if para_id(p) not in done]
     chunks = chunk(paras, args.chunk_chars)
     n_all = len(chunks)
     if args.limit:

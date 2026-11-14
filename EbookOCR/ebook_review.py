@@ -33,12 +33,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+import bookpages
+
 HERE = Path(__file__).resolve().parent
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}  # ebook_ocr.py 와 같게 유지
 LOW_SCORE = 0.8  # 이 신뢰도 미만 줄은 '의심 줄'
 MAX_BODY = 20 * 1024 * 1024
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
-EDITOR_VERSION = "2026-11-10.3"  # ebook_review.html 의 EDITOR_VERSION 과 같게 (업데이트 뒤 편집기를 다시 켰는지 확인용)
+EDITOR_VERSION = "2026-11-14.1"  # ebook_review.html 의 EDITOR_VERSION 과 같게 (업데이트 뒤 편집기를 다시 켰는지 확인용)
 
 FIG_LINK = re.compile(r"!\[([^\]\n]*)\]\((figures/[^)\s]+)\)")
 
@@ -70,7 +72,20 @@ class Book:
         self.suggest = out_dir / f"{title}_제안.json"  # ebook_suggest.py 가 만든 AI 교정 제안
         self.checked_file = out_dir / f"{title}_확인.json"  # 사람이 '확인 완료'한 쪽 (여러 PC 에서 이어서)
         self.exclude_file = out_dir / f"{title}_제외영역.json"  # 영역 지우기: 다시 OCR 할 때도 빼는 영역 (ebook_ocr 가 읽음)
+        self.chapters_file = bookpages.config_path(out_dir, title)  # 장 설정: 챕터 시작·쪽 번호 교정·뺀 쪽 (교정 글과 따로)
         self.lock = threading.Lock()
+
+    # -- 장 설정 ----------------------------------------------------------
+    def chapters(self) -> dict:
+        try:
+            cfg = bookpages.load_config(self.chapters_file)
+        except ValueError:
+            cfg = None
+        return cfg if cfg is not None else bookpages.empty_config()
+
+    def set_chapters(self, cfg: dict) -> dict:
+        with self.lock:
+            return bookpages.save_config(self.chapters_file, cfg)
 
     # -- 작업 파일 --------------------------------------------------------
     def ensure_work_file(self) -> None:
@@ -287,6 +302,8 @@ def make_handler(book: Book):
                 if path == "/api/book":
                     return self._json({"title": book.title, "pages": book.page_info(), "md": book.read_md(),
                                        "low_score": LOW_SCORE})
+                if path == "/api/chapters":
+                    return self._json(book.chapters())
                 if path == "/api/suggestions":
                     return self._json(book.suggestions())
                 if path == "/api/version":
@@ -346,6 +363,8 @@ def make_handler(book: Book):
                 if urlparse(self.path).path == "/api/exclude":
                     req = json.loads(self._body().decode("utf-8"))
                     return self._json({"count": book.add_exclude(req)})
+                if urlparse(self.path).path == "/api/chapters":
+                    return self._json(book.set_chapters(json.loads(self._body().decode("utf-8"))))
                 if urlparse(self.path).path == "/api/checked":
                     req = json.loads(self._body().decode("utf-8"))
                     return self._json(book.set_checked(int(req["page"]), bool(req["done"])))

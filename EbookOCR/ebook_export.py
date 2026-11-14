@@ -16,7 +16,7 @@ Markdown 은 그림을 '파일 링크'로만 가리킬 뿐 그림을 품지 못�
     python ebook_export.py books\\책이름                 # 두 파일 모두
     python ebook_export.py books\\책이름 --only ai       # AI용 글만
     python ebook_export.py books\\책이름 --only docx     # 완성본 Word 만
-    python ebook_export.py books\\책이름 --page-marks    # AI용에 '[p.12]' 쪽 표시를 남김 (출처 표시용)
+    python ebook_export.py books\\책이름 --no-page-marks # AI용에 '[p.N]' 쪽 표시를 넣지 않음 (기본은 책 쪽 번호로 넣음)
     python ebook_export.py books\\책이름 --no-caption    # Word 에 그림 설명 캡션을 넣지 않음
 
 그림 줄은 교정 글 안의  ![설명](figures/p0012_01.png)  한 줄입니다. 설명이 비어 있는 그림은 끝에 알려 줍니다.
@@ -29,6 +29,8 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from bookpages import BookPages, count_pages, empty_config, config_path, load_config
 
 PAGE_MARK = re.compile(r"^<!--\s*p\.(\d+)(\s*이어짐)?\s*-->\s*$")  # 이어짐: 앞 쪽 마지막 문단과 이어 붙임
 FIGURE = re.compile(r"^!\[([^\]]*)\]\(([^)\s]+)\)\s*$")
@@ -306,20 +308,16 @@ def partition(ch: Chapter) -> list[list[Block]]:
 # ----------------------------------------------------------------------------
 # AI용 Markdown
 # ----------------------------------------------------------------------------
-def build_ai_markdown(parsed: Parsed, title: str, page_marks: bool) -> str:
-    lines: list[str] = []
-    has_title = any(b.kind == "title" for b in parsed.blocks)
-    if not has_title:
-        lines += [f"# {title}", ""]
-    for b in parsed.blocks:
-        if b.kind == "title":
-            lines += [f"# {b.text}", ""]
-        elif b.kind == "heading":
+def build_ai_markdown(blocks: list[Block], title: str, page_marks: bool) -> str:
+    """맨 위에 '# 책제목', 그 아래는 한 단계씩 내린다: 챕터 ##, 대주제 ###, … 소소주제 ######."""
+    lines: list[str] = [f"# {title}", ""]
+    for b in blocks:
+        if b.kind == "heading":
             lines += ["#" * (b.level + 1) + f" {ai_inline(b.text)}", ""]
         elif b.kind == "note":
             lines += [f"> {ai_inline(b.text)}", ""]
         elif b.kind == "figure":
-            desc = b.text or (f"(설명 없음 — 원본 {b.page}쪽)" if b.page else NO_ALT)
+            desc = b.text or (f"(설명 없음 — 캡처 {b.page}쪽)" if b.page else NO_ALT)
             lines += [f"> [그림] {desc}", ""]
         elif b.kind == "table":
             n = max(len(r) for r in b.rows)
@@ -330,7 +328,7 @@ def build_ai_markdown(parsed: Parsed, title: str, page_marks: bool) -> str:
             lines += tl + [""]
         elif b.kind == "page":
             if page_marks:
-                lines += [f"[p.{b.page}]", ""]
+                lines += [f"[p.{b.text}]", ""]  # b.text = 책 쪽 번호 (앞부분은 '앞3')
         else:
             lines += [ai_inline(b.text), ""]
     return "\n".join(lines).rstrip() + "\n"
@@ -368,7 +366,7 @@ def _set_font(style, name: str, east_asia: str, size_pt: float | None = None, bo
     fonts.set(qn("w:eastAsia"), east_asia)
 
 
-def build_docx(parsed: Parsed, title: str, base: Path, path: Path, captions: bool) -> int:
+def build_docx(blocks: list[Block], title: str, base: Path, path: Path, captions: bool) -> int:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.shared import Cm, Pt, RGBColor
@@ -385,19 +383,15 @@ def build_docx(parsed: Parsed, title: str, base: Path, path: Path, captions: boo
     st["Normal"].paragraph_format.line_spacing = 1.5
     st["Normal"].paragraph_format.space_after = Pt(6)
     _set_font(st["Title"], LATIN_FONT, BODY_FONT, 24, True, RGBColor(0x1D, 0x23, 0x30))
-    for i, size in ((1, 16), (2, 13), (3, 11.5)):
+    for i, size in ((1, 16), (2, 13), (3, 11.5), (4, 10.5), (5, 10.5)):
         _set_font(st[f"Heading {i}"], LATIN_FONT, BODY_FONT, size, True, RGBColor(0x1D, 0x23, 0x30))
 
-    has_title = any(b.kind == "title" for b in parsed.blocks)
-    if not has_title:
-        doc.add_paragraph(title, style="Title")
+    doc.add_paragraph(title, style="Title")
 
     n_fig = 0
-    for b in parsed.blocks:
-        if b.kind == "title":
-            doc.add_paragraph(b.text, style="Title")
-        elif b.kind == "heading":
-            h = doc.add_heading("", level=min(3, b.level))
+    for b in blocks:
+        if b.kind == "heading":
+            h = doc.add_heading("", level=min(5, b.level))
             add_inline(h, b.text)
         elif b.kind == "note":
             p = doc.add_paragraph()
@@ -452,28 +446,45 @@ def build_docx(parsed: Parsed, title: str, base: Path, path: Path, captions: boo
 
 
 # ----------------------------------------------------------------------------
-def split_ai(parsed: Parsed, title: str, level: int, page_marks: bool) -> list[tuple[str, str]]:
-    """AI용 글을 제목(level 1 = ## 대주제, 2 = ### 중주제까지) 단위로 나눈다. [(파일 이름, 내용)].
-    각 파일 맨 위에 책 제목(# …)을 두어 NotebookLM 등에서 어느 책의 어느 장인지 알 수 있게 한다."""
-    groups: list[tuple[str, list[Block]]] = [("앞부분", [])]
-    for b in parsed.blocks:
-        if b.kind == "title":
+def safe_name(t: str) -> str:
+    return re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", t).strip() or "책"
+
+
+def split_files(plan: Plan, title: str, page_marks: bool) -> list[tuple[str, str]]:
+    """장별 AI용 파일 [(파일 이름, 내용)]. 제외한 챕터는 만들지 않고, 챕터 번호는 건너뛰지 않는다.
+    파일 이름: 책.앞부분.md / 책.챕터01.md / (대주제로 나눈 챕터) 책.챕터03.md + 책.챕터03.대주제01.md"""
+    name = safe_name(title)
+    out: list[tuple[str, str]] = []
+    for ch in plan.chapters:
+        if ch.exclude:
             continue
-        if b.kind == "heading" and b.level <= level:
-            groups.append((b.text, [b]))
-        else:
-            groups[-1][1].append(b)
-    out = []
-    n = 0
-    for name, blocks in groups:
-        if not any(b.kind not in ("page",) for b in blocks):
-            continue  # 쪽 표시뿐인 덩어리(제목 앞 빈 부분)는 건너뜀
-        part = Parsed()
-        part.blocks = blocks
-        safe = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", re.sub(r"\*+|</?u>|<br\s*/?>", "", name)).strip()[:40] or "제목없음"
-        out.append((f"{n:02d}_{safe}.md", build_ai_markdown(part, title, page_marks)))
-        n += 1
+        stem = f"{name}.앞부분" if ch.num == 0 else f"{name}.챕터{ch.num:02d}"
+        groups = partition(ch)
+        if has_content(groups[0]):
+            out.append((f"{stem}.md", build_ai_markdown(groups[0], title, page_marks)))
+        for k, g in enumerate(groups[1:], start=1):
+            head = [Block("heading", ch.title, level=1, page=ch.start)] if ch.num else []  # 파일만 보고도 어느 챕터인지
+            out.append((f"{stem}.대주제{k:02d}.md", build_ai_markdown(head + g, title, page_marks)))
     return out
+
+
+def page_range(ch: Chapter) -> str:
+    labs = [b.text for b in ch.blocks if b.kind == "page"]
+    return f"책 {labs[0]}~{labs[-1]}쪽" if len(labs) > 1 else (f"책 {labs[0]}쪽" if labs else "쪽 없음")
+
+
+def print_summary(plan: Plan, files: list) -> None:
+    print(f"나눈 파일 {len(files)}개")
+    for ch in plan.chapters:
+        if ch.num == 0 and not has_content(ch.blocks):
+            continue
+        nm = "앞부분" if ch.num == 0 else f"챕터{ch.num:02d} {ch.title}"
+        print(f"  {nm}: {page_range(ch)}" + (" — 제외" if ch.exclude else "") + (" (대주제까지 나눔)" if ch.split and not ch.exclude else ""))
+    if plan.skipped:
+        print("뺀 쪽: " + ", ".join(f"캡처 {c}(책 {plan.labels.label(c)}쪽)" for c in plan.skipped))
+    ex = [f"챕터{c.num:02d} {c.title}" for c in plan.chapters if c.exclude]
+    if ex:
+        print("제외한 챕터: " + ", ".join(ex))
 
 
 def parse_args(argv=None):
@@ -482,10 +493,11 @@ def parse_args(argv=None):
     ap.add_argument("-o", "--output", help="OCR 결과 폴더 (기본: <폴더>_OCR)")
     ap.add_argument("--title", help="책 제목 (기본: 폴더 이름)")
     ap.add_argument("--only", choices=["docx", "ai"], help="한 가지만 만들기")
-    ap.add_argument("--page-marks", action="store_true", help="AI용 글에 [p.N] 쪽 표시를 남김")
+    ap.add_argument("--page-marks", action="store_true", help="(예전 옵션, 이제 기본으로 켜져 있음)")
+    ap.add_argument("--no-page-marks", action="store_true", help="AI용 글에 [p.N] 쪽 표시를 넣지 않음")
     ap.add_argument("--no-caption", action="store_true", help="Word 에 그림 설명 캡션을 넣지 않음")
     ap.add_argument("--split-level", type=int, default=1, choices=[0, 1, 2, 3],
-                    help="AI용 글을 나눌 제목 단계: 1 = 대주제(##, 기본), 2 = 중주제(###)까지, 3 = 소주제(####)까지, 0 = 나누지 않음")
+                    help="장 설정 파일이 없을 때만: 앞부분을 나눌 제목 단계 1 = ##(기본), 2 = ###까지, 3 = ####까지, 0 = 나누지 않음")
     return ap.parse_args(argv)
 
 
@@ -499,23 +511,33 @@ def main(argv=None) -> int:
     if not src.is_file():
         print(f"[오류] 교정 파일이 없습니다: {src}\n  먼저 4_교정.bat 로 교정 편집기를 한 번 여세요.")
         return 1
-    parsed = parse_markdown(src.read_bytes().decode("utf-8"), out_dir)
-    figs = [b for b in parsed.blocks if b.kind == "figure"]
+    try:
+        cfg = load_config(config_path(out_dir, title))
+    except ValueError as e:
+        print(f"[오류] {e}")
+        return 1
+    parsed = parse_markdown(src.read_bytes().decode("utf-8"), out_dir, set(cfg["skip_pages"]) if cfg else frozenset())
+    plan = build_plan(parsed, cfg, count_pages(folder), args.split_level)
+    kept = [c for c in plan.chapters if not c.exclude]
+    blocks = [b for c in kept for b in c.blocks]
+    figs = [b for b in blocks if b.kind == "figure"]
+    page_marks = not args.no_page_marks
+    print(f"장 설정: {'있음 (' + str(len(cfg['chapters'])) + '개 챕터)' if cfg else '없음 (교정 글의 # 제목만 챕터로 봄)'}")
 
     made = []
+    files: list = []
     if args.only in (None, "ai"):
         p = out_dir / f"{title}_AI용.md"
-        p.write_bytes(build_ai_markdown(parsed, title, args.page_marks).encode("utf-8"))
+        p.write_bytes(build_ai_markdown(blocks, title, page_marks).encode("utf-8"))
         made.append(("AI용 글", p))
-        if args.split_level:
-            d = out_dir / f"{title}_AI용_나눔"
-            d.mkdir(exist_ok=True)
-            for old in d.glob("*.md"):  # 예전에 나눈 파일 지우기 (이 폴더는 내보내기 전용)
-                old.unlink()
-            parts = split_ai(parsed, title, args.split_level, args.page_marks)
-            for name, text in parts:
-                (d / name).write_bytes(text.encode("utf-8"))
-            made.append((f"AI용 나눔 ({len(parts)}개 파일, 제목 단계 {args.split_level})", d))
+        d = out_dir / f"{title}_AI용_나눔"
+        d.mkdir(exist_ok=True)
+        for old in d.glob("*.md"):  # 예전에 나눈 파일 지우기 (이 폴더는 내보내기 전용)
+            old.unlink()
+        files = split_files(plan, title, page_marks)
+        for name, text in files:
+            (d / name).write_bytes(text.encode("utf-8"))
+        made.append((f"AI용 나눔 ({len(files)}개 파일)", d))
     if args.only in (None, "docx"):
         try:
             import docx  # noqa: F401
@@ -523,14 +545,15 @@ def main(argv=None) -> int:
             print("[오류] python-docx 가 없어 Word 파일을 만들 수 없습니다. 설치.bat 를 다시 실행하세요.")
             return 1
         p = out_dir / f"{title}_완성본.docx"
-        build_docx(parsed, title, out_dir, p, not args.no_caption)
+        build_docx(blocks, title, out_dir, p, not args.no_caption)
         made.append(("완성본(Word)", p))
 
     print(f"완료: 그림 {len(figs)}개")
     for label, p in made:
         print(f"  {label}: {p.resolve()}")
+    print_summary(plan, files)
     if parsed.missing_alt:
-        pages = ", ".join(f"{n}쪽" if n else "쪽 미상" for n in parsed.missing_alt)
+        pages = ", ".join(f"캡처 {n}쪽" if n else "쪽 미상" for n in parsed.missing_alt)
         print(f"[주의] 설명이 없는 그림 {len(parsed.missing_alt)}개 ({pages}) — AI용 글에는 '설명 없음'으로 들어갑니다."
               "\n       4_교정.bat 의 '그림 목록'에서 찾아 설명을 쓴 뒤 다시 내보내세요.")
     if parsed.missing_file:

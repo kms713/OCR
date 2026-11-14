@@ -459,15 +459,22 @@ def fix_spacing(paras: list[Para]) -> None:
 # ----------------------------------------------------------------------------
 # 4) 저장
 # ----------------------------------------------------------------------------
-def write_markdown(paras: list[Para], path: Path, title: str, page_marks: bool) -> None:
+def write_markdown(paras: list[Para], path: Path, title: str, page_marks: bool, n_pages: int = 0) -> None:
+    """n_pages > 0 이고 page_marks 면 글이 없는 쪽도 <!-- p.N --> 을 넣는다 (나중에 그 쪽에 글·제목을 쓸 수 있게)."""
     lines = [f"# {title}", ""]
-    last_page = None
+    last_page = 0
     cont_pages = {x.page for x in paras if x.cont}
+
+    def mark(no: int) -> None:
+        lines.extend([f"<!-- p.{no}{' 이어짐' if no in cont_pages else ''} -->", ""])  # 이어짐: 앞 쪽 마지막 문단에 이어 붙임
+
     for para in paras:
         para.text = para.text.replace(SOFT, "")
         if page_marks and para.page != last_page:
-            # '이어짐': 이 쪽 첫 문단은 앞 쪽 마지막 문단의 이어짐 (내보낼 때 이어 붙임)
-            lines += [f"<!-- p.{para.page}{' 이어짐' if para.page in cont_pages else ''} -->", ""]
+            if n_pages:
+                for no in range(last_page + 1, para.page):
+                    mark(no)
+            mark(para.page)
             last_page = para.page
         if para.heading:
             lines += [f"## {para.text}", ""]
@@ -475,6 +482,9 @@ def write_markdown(paras: list[Para], path: Path, title: str, page_marks: bool) 
             lines += [f"> 주: {para.text}", ""]
         else:
             lines += [para.text, ""]
+    if page_marks and n_pages:
+        for no in range(last_page + 1, n_pages + 1):
+            mark(no)
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
@@ -610,7 +620,7 @@ def main(argv=None) -> int:
     paras_r = build_paragraphs(pages, merge=False)
     if not args.no_spacing:
         fix_spacing(paras_r)
-    write_markdown(paras_r, out_dir / f"{title}_교정용.md", title, True)
+    write_markdown(paras_r, out_dir / f"{title}_교정용.md", title, True, len(files))
 
     n_pic = sum(len(p.pictures) for p in pages)
     chars = sum(len(x.text) for x in paras)
