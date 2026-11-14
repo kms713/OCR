@@ -76,6 +76,7 @@ EbookOCR/                  ← 전자책 OCR
   ebook_export.py          교정 글 → 완성본 docx + AI용 md
   ebook_suggest.py         Gemini 맞춤법·OCR 교정 제안 (선택, 원문 불변)
   bookdir.py               책 폴더 위치: 책폴더.txt(PC별, git 제외)가 있으면 'books\\X' → 그 경로\\X. 결과 폴더 X_OCR (3_OCR_GPU.bat도 2026-11-10부터 같은 곳). 예전 판이 만든 X_OCR_GPU만 있으면(또는 그쪽에만 교정 중 파일) 그쪽
+  (bookdir) 책 번호: `--list` 가 가나다순(casefold) 번호로 보여 주고, resolve 가 'books\\N' 을 N번 책으로 바꿈(그 이름의 폴더가 실제로 있으면 그 폴더).
   설치_교정용.bat          OCR 없는 가벼운 설치(pillow, python-docx: requirements_edit.txt)
   책폴더_설정.bat          bookdir.py 실행 (경로 입력·확인)
   표 넣기(편집기): 캐시 `boxes`(줄로 묶기 전 글상자, 2026-11-10부터 저장. 없으면 rows 사용)를 고른 영역에서 가로로 겹치면(간격 0.3h) 같은 열, 세로로 겹치거나 행 나누기 기준(0.15/0.5/1.0h) 안이면 같은 행으로 묶어 마크다운 표 초안. 칸 안 여러 줄은 기본 빈칸으로, '칸 안 줄바꿈 살리기'면 `<br>`(Word는 칸 안 줄바꿈, AI용은 `<br>` 그대로). 본문 문단 중 글자 80% 이상이 표 칸 글이면 지우고 그 자리에 표. 내보내기: `| … |` 줄 묶음 → Word 표(Table Grid, 머리 행 굵게)·AI용 md 표. ebook_suggest 는 표 줄을 보내지 않음

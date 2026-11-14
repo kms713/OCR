@@ -143,7 +143,7 @@ def keep_markup(orig: str, sug: str) -> str:
 
 def check_suggestion(orig: str, sug: str, max_change: float) -> tuple[bool, list[str], str]:
     """(채택 여부, 주의 표시, 다듬은 제안). 서식 기호는 원문대로 두고, 너무 많이 바뀌면 버리고, 숫자·영문이 바뀌면 주의 표시."""
-    sug = keep_markup(orig, sug.replace(SOFT, "").strip())
+    sug = keep_markup(orig, re.sub(r"\s*\n\s*", " ", sug.replace(SOFT, "")).strip())  # 문단은 한 줄: 답 속 줄바꿈은 빈칸으로
     if not sug or sug == orig:
         return False, [], sug
     if 1 - difflib.SequenceMatcher(None, orig, sug, autojunk=False).ratio() > max_change:
@@ -364,10 +364,11 @@ def call_gemini(key: str, model: str, text: str, thinking: str = "", timeout: in
 
 
 def parse_reply(txt: str) -> list[dict] | None:
-    """답에서 [{"id":..,"text":..}, ...] 배열을 찾는다. 앞에 군더더기가 붙은 답도 살린다. 못 찾으면 None."""
+    """답에서 [{"id":..,"text":..}, ...] 를 찾는다. 앞에 군더더기가 붙거나, 문장 속 따옴표·줄바꿈이 JSON 규칙을
+    어긴 답도 문단 단위로 살린다. 아무것도 못 찾으면 None."""
     if not txt:
         return []
-    dec = json.JSONDecoder()
+    dec = json.JSONDecoder(strict=False)  # strict=False: 문장 안의 줄바꿈 같은 제어 문자 허용
     for m in re.finditer(r"\[", txt):
         try:
             res, _ = dec.raw_decode(txt, m.start())
@@ -377,7 +378,30 @@ def parse_reply(txt: str) -> list[dict] | None:
             if res and not any("id" in x and "text" in x for x in res):
                 continue
             return [x for x in res if "id" in x and "text" in x]
-    return None
+    return salvage_items(txt)
+
+
+def salvage_items(txt: str) -> list[dict] | None:
+    """JSON 으로 못 읽는 답에서 {"id": "..", "text": ".."} 를 하나씩 건져 낸다.
+    문장 속 따옴표를 이스케이프하지 않은 경우(예: "무한 루프" 인용)를 위해, text 의 끝은 '다음 항목 시작 또는 배열 끝' 앞의
+    마지막 따옴표로 본다. 중간에 잘린 마지막 항목은 버린다."""
+    starts = [m for m in re.finditer(r'\{\s*"id"\s*:\s*"([^"\\]{1,40})"\s*,\s*"text"\s*:\s*"', txt)]
+    if not starts:
+        return [] if re.fullmatch(r"\s*\[\s*\]\s*", txt) else None
+    out = []
+    for i, m in enumerate(starts):
+        end = starts[i + 1].start() if i + 1 < len(starts) else len(txt)
+        seg = txt[m.end():end]
+        close = re.search(r'"\s*\}\s*,?\s*(?:\]\s*)?$', seg)  # 항목 끝: "  }  ,  ]
+        if not close:
+            continue  # 잘린 항목
+        body = seg[:close.start()]
+        try:
+            text = json.loads('"' + body + '"', strict=False)
+        except ValueError:
+            text = body.replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
+        out.append({"id": m.group(1), "text": text})
+    return out or None
 
 
 def run_check(key: str, args) -> int:

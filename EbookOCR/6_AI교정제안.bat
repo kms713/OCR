@@ -8,7 +8,7 @@ if not exist ".venv\Scripts\python.exe" (
 )
 .venv\Scripts\python.exe bookdir.py --list
 echo.
-set /p BOOK=책 이름(위 목록 중 하나)을 입력하세요: 
+set /p BOOK=책 번호 또는 이름을 입력하세요: 
 if "%BOOK%"=="" exit /b 1
 rem 모델은 ai_models.txt 목록에서 고름 (자동 = 위에서부터, 막히면 다음 모델). 키: nvidia_key.txt, gemini_key.txt
 .venv\Scripts\python.exe ebook_suggest.py "books\%BOOK%" --menu %*

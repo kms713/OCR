@@ -6,7 +6,9 @@ if not exist ".venv\Scripts\python.exe" (
     pause
     exit /b 1
 )
-set /p BOOK=책 이름(저장 폴더 이름)을 입력하세요: 
+.venv\Scripts\python.exe bookdir.py --list
+echo.
+set /p BOOK=새 책이면 이름(저장 폴더 이름), 이어 찍기면 위 목록의 번호 또는 이름을 입력하세요: 
 if "%BOOK%"=="" exit /b 1
 set "PAGES="
 set /p PAGES=모두 몇 장 찍을까요? (책의 쪽 수. 모르면 그냥 Enter = 자동으로 끝 판단): 

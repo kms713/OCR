@@ -32,13 +32,31 @@ def books_root() -> Path | None:
     return None
 
 
+def book_names(root: Path) -> list[str]:
+    """책 폴더 안의 책 이름 (결과 폴더 _OCR 제외), 가나다순 — 목록 번호의 기준."""
+    try:
+        return sorted((d.name for d in root.iterdir() if d.is_dir() and not d.name.endswith(("_OCR", "_OCR_GPU"))),
+                      key=lambda n: (n.casefold(), n))
+    except OSError:
+        return []
+
+
 def resolve(p: str | Path) -> Path:
-    """'books\\책이름…' 을 책폴더.txt 의 경로 아래로 바꾼다. 그 밖의 경로는 그대로."""
+    """'books\\책이름…' 을 책폴더.txt 의 경로 아래로 바꾼다. 그 밖의 경로는 그대로.
+    책이름 자리에 번호를 쓰면(books\\3) 목록(--list)의 그 번호 책으로 본다. 단 그 이름의 폴더가 실제로 있으면 그 폴더."""
     p = Path(p)
     root = books_root()
     parts = Path(str(p).replace("\\", "/")).parts
-    if root is not None and not p.is_absolute() and parts and parts[0].lower() == "books":
-        return root.joinpath(*parts[1:])
+    if not p.is_absolute() and parts and parts[0].lower() == "books":
+        base = root if root is not None else HERE / "books"
+        rest = list(parts[1:])
+        if rest and rest[0].isdigit() and not (base / rest[0]).exists():
+            names = book_names(base)
+            n = int(rest[0])
+            if 1 <= n <= len(names):
+                rest[0] = names[n - 1]
+                print(f"{n}번 책: {rest[0]}")
+        return base.joinpath(*rest) if root is not None else Path("books").joinpath(*rest)
     return p
 
 
@@ -67,11 +85,11 @@ def list_books() -> int:
         print("  [안내] 이 폴더가 없습니다. 클라우드 앱이 켜져 있는지, 책폴더_설정.bat 의 경로가 맞는지 확인하세요."
               if books_root() else "  (아직 책이 없습니다. 열 책이 없으면 이 창을 닫으세요)")
         return 0
-    names = sorted(d.name for d in root.iterdir() if d.is_dir() and not d.name.endswith(("_OCR", "_OCR_GPU")))
+    names = book_names(root)
     if names:
-        for n in names:
+        for i, n in enumerate(names, start=1):
             done = (root / f"{n}_OCR").is_dir() or (root / f"{n}_OCR_GPU").is_dir()
-            print(f"  · {n}" + ("" if done else "   (아직 OCR 전)"))
+            print(f"  {i:>3}. {n}" + ("" if done else "   (아직 OCR 전)"))
     else:
         print("  (책이 없습니다. 캡처한 책 폴더를 이 폴더에 넣으세요)")
     return 0
