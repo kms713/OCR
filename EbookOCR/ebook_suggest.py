@@ -625,6 +625,14 @@ def main(argv=None) -> int:
         return 0
     global MAX_ATTEMPTS
     ci = 0  # 자동 모드: 지금 쓰는 모델 번호
+    dead: set[int] = set()  # 이번 실행에서 다시 쓰지 않을 모델 (하루 한도·서비스 종료·권한 없음)
+    rest_until: dict[int, int] = {}  # 잠깐 막힌 모델 → 이 덩어리 번호부터 다시 써 봄
+
+    def pick(i_chunk: int) -> int:  # 지금 쓸 모델: 위에서부터, 완전히 막혔거나 쉬는 중인 것은 건너뜀
+        for k in range(len(chain)):
+            if k not in dead and rest_until.get(k, 0) <= i_chunk:
+                return k
+        return -1
     if len(chain) > 1:
         MAX_ATTEMPTS = 2  # 막히면 오래 붙잡지 말고 다음 모델로
         print("자동: " + " → ".join(m["model"] for m in chain))
@@ -643,6 +651,16 @@ def main(argv=None) -> int:
         text = "\n".join(f"[{k}] {p}" for k, p in ids.items())
         print(f"\r  {i}/{len(chunks)} 덩어리 보내는 중... (응답이 올 때까지 최대 {args.timeout}초)", end="", flush=True)
         t_call = time.monotonic()
+        if len(chain) > 1:  # 자동: 쉬던 앞 모델이 다시 쓸 수 있게 됐으면 돌아감
+            k = pick(i)
+            if k >= 0 and k != ci:
+                ci = k
+                use_model(args, chain[ci], rpm_user)
+                if args.service == "gemini":
+                    args.thinking = ""
+                key = load_key(args.service)
+                gap = 60.0 / max(0.1, args.rpm)
+                print(f"\n  → {chain[ci]['model']} 로 돌아갑니다", flush=True)
         try:
             while True:
                 try:
@@ -657,10 +675,20 @@ def main(argv=None) -> int:
                                           args.temperature, args.no_proxy, args)
                     break
                 except (RuntimeError, QuotaDaily) as e:
-                    if ci + 1 >= len(chain):
+                    if len(chain) <= 1:
                         raise
-                    ci += 1  # 자동 모드: 같은 덩어리를 다음 모델로
-                    print(f"\n  [{args.model}] 막힘: {str(e).splitlines()[0][:80]}\n  → 다음 모델 {chain[ci]['model']} 로 같은 덩어리를 다시 보냅니다", flush=True)
+                    msg = str(e)
+                    hard = isinstance(e, QuotaDaily) or re.search(r"서비스가 끝났|찾지 못했|키가 맞지|권한|한도 0|API 오류 4", msg)
+                    if hard:
+                        dead.add(ci)
+                    else:
+                        rest_until[ci] = i + 5  # 잠깐 막힘: 5덩어리 쉬었다가 다시
+                    k = pick(i)
+                    if k < 0:
+                        raise
+                    why = "이번 실행에서 다시 쓰지 않음" if hard else "5덩어리 뒤 다시 써 봄"
+                    print(f"\n  [{args.model}] 막힘 ({why}): {msg.splitlines()[0][:80]}\n  → {chain[k]['model']} 로 같은 덩어리를 다시 보냅니다", flush=True)
+                    ci = k
                     use_model(args, chain[ci], rpm_user)
                     if args.service == "gemini":
                         args.thinking = ""
