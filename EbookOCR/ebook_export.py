@@ -32,7 +32,7 @@ from pathlib import Path
 
 PAGE_MARK = re.compile(r"^<!--\s*p\.(\d+)(\s*이어짐)?\s*-->\s*$")  # 이어짐: 앞 쪽 마지막 문단과 이어 붙임
 FIGURE = re.compile(r"^!\[([^\]]*)\]\(([^)\s]+)\)\s*$")
-HEADING = re.compile(r"^(#{1,4})\s+(.*\S)\s*$")  # # 제목, ## 대주제, ### 중주제, #### 소주제
+HEADING = re.compile(r"^(#{1,5})\s+(.*\S)\s*$")  # # 챕터, ## 대주제, ### 중주제, #### 소주제, ##### 소소주제
 # 글 속 서식 (겹쳐도 됨, 순서 상관없음): ***굵게+기울임***, **굵게**, *기울임*, <u>밑줄</u>
 # 기울임 *…* 은 앞뒤가 영문·숫자면 제외 (2*3*4 같은 곱셈). 한글 조사가 바로 붙어도(*집단 지성*의) 인식
 FMT_PATTERNS = [  # (정규식, 붙는 서식). 같은 자리에서 시작하면 앞의 것(긴 표시)이 우선
@@ -121,40 +121,55 @@ def table_cells(line: str) -> list[str]:
     return [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", line.strip()[1:-1])]
 
 
-def parse_markdown(text: str, base: Path) -> Parsed:
+def parse_markdown(text: str, base: Path, skip_pages=frozenset()) -> Parsed:
+    """교정 글 → 블록 목록. 제목 단계는 # 개수 그대로(1 챕터 … 5 소소주제).
+    파일 첫 줄의 '# 책제목'은 건너뛴다(책 제목은 폴더 이름·--title 에서 가져옴). skip_pages: 글을 뺄 캡처 쪽 번호."""
     out = Parsed()
     page = 0
-    first_h1 = True
+    first = True
     join_next = False  # '<!-- p.N 이어짐 -->' 다음 첫 본문은 앞 쪽 마지막 본문 문단에 이어 붙인다
+
+    def close_table():
+        if out.blocks and out.blocks[-1].kind == "table":
+            out.blocks[-1].closed = True
+
     for raw in text.replace("\r\n", "\n").replace(SOFT, "").split("\n"):
         line = raw.rstrip()
-        if not line.strip():
-            if out.blocks and out.blocks[-1].kind == "table":
-                out.blocks[-1].closed = True  # 빈 줄 = 표 끝
+        s = line.strip()
+        if not s:
+            close_table()  # 빈 줄 = 표 끝
             continue
-        if TABLE_LINE.match(line.strip()):  # 표 줄: 이어진 표 줄을 한 표로 모은다
-            t = line.strip()
+        was_first, first = first, False
+        m = PAGE_MARK.match(s)
+        if m:
+            close_table()
+            page = int(m.group(1))
+            join_next = bool(m.group(2)) and page not in skip_pages
+            if page not in skip_pages:
+                out.blocks.append(Block("page", page=page))
+            continue
+        if page in skip_pages:  # 뺀 쪽: 글도 그림도 쓰지 않는다 (쪽 번호는 그대로 차지)
+            close_table()
+            continue
+        if was_first:
+            mh = HEADING.match(s)
+            if mh and len(mh.group(1)) == 1:
+                continue  # 예전 교정 파일의 첫 줄 '# 책제목'
+        if TABLE_LINE.match(s):  # 표 줄: 이어진 표 줄을 한 표로 모은다
             last = out.blocks[-1] if out.blocks else None
             if last is not None and last.kind == "table" and not last.closed:
-                if TABLE_SEP.match(t) and len(last.rows) == 1:
+                if TABLE_SEP.match(s) and len(last.rows) == 1:
                     last.head = True
-                elif not TABLE_SEP.match(t):
-                    last.rows.append(table_cells(t))
-            elif not TABLE_SEP.match(t):
-                out.blocks.append(Block("table", page=page, rows=[table_cells(t)], closed=False))
+                elif not TABLE_SEP.match(s):
+                    last.rows.append(table_cells(s))
+            elif not TABLE_SEP.match(s):
+                out.blocks.append(Block("table", page=page, rows=[table_cells(s)], closed=False))
             join_next = False
             continue
-        if out.blocks and out.blocks[-1].kind == "table":
-            out.blocks[-1].closed = True  # 빈 줄이 아닌 다른 줄이 오면 표 끝
-        m = PAGE_MARK.match(line.strip())
-        if m:
-            page = int(m.group(1))
-            join_next = bool(m.group(2))
-            out.blocks.append(Block("page", page=page))
-            continue
-        if line.strip().startswith("<!--") and line.strip().endswith("-->"):
+        close_table()  # 빈 줄이 아닌 다른 줄이 오면 표 끝
+        if s.startswith("<!--") and s.endswith("-->"):
             continue  # 그 밖의 주석은 버림
-        m = FIGURE.match(line.strip())
+        m = FIGURE.match(s)
         if m:
             alt, src = m.group(1).strip(), m.group(2)
             if not alt:
@@ -163,17 +178,12 @@ def parse_markdown(text: str, base: Path) -> Parsed:
                 out.missing_file.append(src)
             out.blocks.append(Block("figure", alt, page=page, src=src))
             continue  # 그림은 이어 붙이기 대상이 아니므로 join_next 를 그대로 둔다 (그림 뒤 본문을 앞 문단에 붙임)
-        m = HEADING.match(line.strip())
+        m = HEADING.match(s)
         if m:
-            level = len(m.group(1))
-            if level == 1 and first_h1:
-                out.blocks.append(Block("title", m.group(2)))
-                first_h1 = False
-            else:
-                out.blocks.append(Block("heading", m.group(2), level=max(1, level - 1) if level > 1 else 1, page=page))
+            out.blocks.append(Block("heading", m.group(2), level=len(m.group(1)), page=page))
             join_next = False  # 제목이 오면 이어지지 않음
             continue
-        m = NOTE.match(line.strip())
+        m = NOTE.match(s)
         if m:
             out.blocks.append(Block("note", m.group(1).strip(), page=page))
             continue
@@ -181,11 +191,116 @@ def parse_markdown(text: str, base: Path) -> Parsed:
             prev = next((b for b in reversed(out.blocks) if b.kind not in ("page", "note", "figure")), None)
             join_next = False
             if prev is not None and prev.kind == "para":
-                t = line.strip()
-                prev.text = prev.text[:-1] + t if re.search(r"[A-Za-z]-$", prev.text) and re.match(r"[a-z]", t) else f"{prev.text} {t}"
+                prev.text = prev.text[:-1] + s if re.search(r"[A-Za-z]-$", prev.text) and re.match(r"[a-z]", s) else f"{prev.text} {s}"
                 continue
-        out.blocks.append(Block("para", line.strip(), page=page))
+        out.blocks.append(Block("para", s, page=page))
     return out
+
+
+# ----------------------------------------------------------------------------
+# 챕터 나누기 (설정 + 교정 글 속 '# 제목')
+# ----------------------------------------------------------------------------
+@dataclass
+class Chapter:
+    num: int  # 0 = 앞부분, 1~ = 챕터 번호 (제외한 챕터도 번호를 차지한다)
+    title: str
+    split: int  # 0 = 챕터만, N = 제목 단계 N+1(## …)까지 나눔 (설정의 '대주제까지' = 1)
+    exclude: bool
+    start: int  # 시작 캡처 쪽
+    blocks: list = field(default_factory=list)
+
+
+@dataclass
+class Plan:
+    chapters: list[Chapter]
+    skipped: list[int]  # 뺀 쪽 (캡처 번호)
+    labels: BookPages
+
+
+def _norm(t: str) -> str:
+    return re.sub(r"\*+|</?u>|<br\s*/?>|\s+", "", t)
+
+
+def build_plan(parsed: Parsed, cfg: dict | None, n_pages: int, legacy_split: int = 0) -> Plan:
+    """블록을 챕터로 나누고 쪽 표시 블록에 책 쪽 번호(text)를 단다.
+    cfg 가 None(설정 파일 없음)이면 '# 제목' 줄만 챕터로 보고, 앞부분은 legacy_split 단계까지 나눈다."""
+    has_cfg = cfg is not None
+    cfg = cfg or empty_config()
+    bp = BookPages(cfg)
+    chap_at = {c["capture"]: c for c in cfg["chapters"]}
+    skip = set(cfg["skip_pages"])
+    chapters = [Chapter(0, "앞부분", 0 if has_cfg else legacy_split, False, 1)]
+    st = {"cur": chapters[0], "page": 0, "drop": None}
+
+    def new_chapter(title, split, exclude, start):
+        st["cur"] = Chapter(len(chapters), title, split, exclude, start)
+        chapters.append(st["cur"])
+
+    def enter(c: int):
+        st["page"], st["drop"] = c, None
+        ch = chap_at.get(c)
+        if ch:
+            new_chapter(ch["title"], 1 if ch["split"] == "topic" else 0, ch["exclude"], c)
+            st["drop"] = _norm(ch["title"])
+        if c in skip:  # 글만 뺀다: 쪽 표시는 쓰지 않고, 챕터 설정은 살아 있다
+            if ch:
+                st["cur"].blocks.append(Block("heading", ch["title"], level=1, page=c))
+            return
+        st["cur"].blocks.append(Block("page", bp.label(c), page=c))  # 새 챕터가 쪽 맨 위에서 시작하면 쪽 표시도 새 챕터 것
+        if ch:
+            st["cur"].blocks.append(Block("heading", ch["title"], level=1, page=c))
+
+    last = 0
+    for b in parsed.blocks:
+        if b.kind == "page":
+            if b.page > last:
+                for c in range(last + 1, b.page + 1):  # 글이 없어 쪽 표시가 없는 쪽도 차례로 지난다
+                    enter(c)
+                last = b.page
+            continue
+        cur = st["cur"]
+        if b.kind == "heading":
+            if st["drop"] and b.level <= 2 and _norm(b.text) == st["drop"]:
+                st["drop"] = None  # 챕터 시작 쪽의 글에 있던 같은 제목: 챕터 제목이 한 번만 나오게
+                continue
+            if b.level == 1:  # 교정 글에 직접 쓴 '# 제목' = 챕터 (나누기는 챕터만)
+                moved = cur.blocks.pop() if cur.blocks and cur.blocks[-1].kind == "page" and cur.blocks[-1].page == st["page"] else None
+                new_chapter(b.text, 0, False, st["page"])
+                if moved:
+                    st["cur"].blocks.append(moved)
+                st["cur"].blocks.append(b)
+                continue
+        cur.blocks.append(b)
+    if last:
+        for c in range(last + 1, n_pages + 1):
+            enter(c)
+    return Plan(chapters, sorted(skip), bp)
+
+
+def has_content(blocks: list[Block]) -> bool:
+    return any(b.kind not in ("page",) and not (b.kind == "heading" and b.level == 1) for b in blocks)
+
+
+def partition(ch: Chapter) -> list[list[Block]]:
+    """챕터 글을 대주제(제목 단계 2 ~ split+1) 앞에서 나눈다. 새 덩어리는 그 쪽의 쪽 표시로 시작한다
+    (대주제가 쪽 맨 위에서 시작하면 쪽 표시를 새 덩어리로 옮기고, 쪽 중간이면 같은 쪽 표시를 하나 더 둔다)."""
+    if not ch.split:
+        return [list(ch.blocks)]
+    groups: list[list[Block]] = [[]]
+    last_page = None
+    for b in ch.blocks:
+        if b.kind == "page":
+            last_page = b
+        if b.kind == "heading" and 2 <= b.level <= ch.split + 1:
+            g = groups[-1]
+            if last_page is not None and g and g[-1] is last_page:
+                pb = g.pop()
+            else:
+                pb = Block("page", last_page.text, page=last_page.page) if last_page is not None else None
+            groups.append(([pb] if pb else []) + [b])
+            continue
+        groups[-1].append(b)
+    return groups
 
 
 # ----------------------------------------------------------------------------
