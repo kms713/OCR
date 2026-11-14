@@ -244,6 +244,10 @@ def call_raw(key: str, model: str, text: str, thinking: str = "", timeout: int =
                 print("\n  이 모델은 사고 수준 설정을 받지 않아 빼고 다시 보냅니다 (--thinking 없이)")
                 del body["generationConfig"]["thinkingConfig"]
                 continue
+            if e.code == 400 and "responseMimeType" in body["generationConfig"] and re.search(r"json|mime", detail, re.I):
+                print("\n  이 모델은 JSON 전용 답 설정을 받지 않아 빼고 다시 보냅니다 (Gemma 등)")
+                del body["generationConfig"]["responseMimeType"]
+                continue
             if e.code in (500, 502, 503, 504):
                 wait = 10 * (attempt + 1)
                 print(f"\n  서버 혼잡·일시 오류 ({e.code}) — {wait}초 뒤 다시 시도합니다 ({attempt + 1}/{MAX_ATTEMPTS})", flush=True)
