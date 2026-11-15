@@ -7,8 +7,8 @@ ebook_capture.py 로 찍은 page_0001.png ... 폴더를 읽어 본문 글자만 
 글자 인식은 시험지 OCR 과 같은 PaddleOCR 엔진(ocr_paddle.py)을 그대로 씁니다.
 
 처리 방식
-    1) 그림·사진 제외: 글자 영역을 지운 뒤에도 '큰 덩어리'로 남는 부분을 그림으로 보고,
-       그 안에서 읽힌 글자(그림 속 글씨·잡음)는 버립니다.
+    1) 글자로 읽힌 것은 모두 남깁니다 (그림·표·화면 캡처 속 글자 포함, 2026-11-15 부터). 잘못 읽힌 곳은 교정 편집기에서 지웁니다.
+       그림·화면 캡처로 보이는 영역은 글자를 버리지 않고, 편집기에서 점선 '그림?' 으로만 보여 줍니다 (그림 넣기 때 한 번에 고르기용).
     2) 머리말·꼬리말·쪽 번호는 자동으로 지우지 않습니다 (본문 줄을 잘못 지우는 일이 있어 2026-11-15 에 뺌).
        교정 편집기의 '머리말·꼬리말 정리'나 '영역 지우기'로 직접 지웁니다.
     3) 문단 복원: 화면 폭 때문에 생긴 줄바꿈을 이어 붙이고, 들여쓰기·줄 간격·문장 끝으로 문단을 나눕니다.
@@ -19,7 +19,6 @@ ebook_capture.py 로 찍은 page_0001.png ... 폴더를 읽어 본문 글자만 
 사용 예 (Windows에서는 python 대신 py -3.12)
     python ebook_ocr.py 책이름                     # 책이름 폴더의 page_*.png → 책이름_OCR\\책이름.md
     python ebook_ocr.py 책이름 --page-marks        # 문단 사이에 <!-- p.12 --> 쪽 표시 넣기
-    python ebook_ocr.py 책이름 --keep-pictures     # 그림 영역 글자도 버리지 않기
     python ebook_ocr.py 책이름 --redo              # 캐시를 무시하고 처음부터 다시 인식
 
 출력
@@ -54,6 +53,8 @@ CACHE_VERSION = 1
 
 # 문장이 끝났다고 볼 끝 글자
 SENTENCE_END = re.compile(r"[.?!…。」』\"”’')\]>:;]$")
+# 각주 표시 기호만 있는 줄
+NOTE_MARK = re.compile(r"^[\s•·∙●*※†‡]+$")
 
 
 # ----------------------------------------------------------------------------
@@ -118,11 +119,6 @@ def picture_regions(img: np.ndarray, text_boxes: list[list[int]], min_fill: floa
     return out
 
 
-def inside(box: list[int], region: list[int]) -> bool:
-    cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
-    return region[0] <= cx <= region[2] and region[1] <= cy <= region[3]
-
-
 def group_rows(items) -> list[Row]:
     """글상자를 줄로 묶는다. 묶는 기준은 시험지 OCR(ocr_paddle.group_rows) 그대로 쓰고, 줄 좌표를 함께 남긴다."""
     import ocr_paddle as op
@@ -142,8 +138,8 @@ def ocr_image(ocr, img: np.ndarray, no: int, name: str, args) -> Page:
     results = ocr.predict(np.ascontiguousarray(img))
     res = results[0] if results else None
     items = op.to_items(res, args.min_score) if res is not None else []
-    pictures = [] if args.keep_pictures else picture_regions(img, [it.box for it in items], args.picture_fill)
-    items = [it for it in items if not any(inside(it.box, p) for p in pictures)]
+    # 그림 영역은 편집기 표시용으로만 찾는다. 그 안의 글자도 버리지 않는다 (색이 많은 표가 그림으로 판정돼 글이 빠지던 문제)
+    pictures = picture_regions(img, [it.box for it in items], args.picture_fill)
     h, w = img.shape[:2]
     boxes = [Row(it.text.strip(), [int(v) for v in it.box], float(it.score)) for it in items if it.text.strip()]
     return Page(no, name, w, h, group_rows(items), pictures, boxes)
@@ -189,6 +185,13 @@ def ocr_region(ocr, img: np.ndarray, box, min_score: float = 0.5) -> tuple[list[
     return boxes, group_rows(items)
 
 
+def cache_usable(d: dict, min_score: float) -> bool:
+    """쪽 인식 캐시를 그대로 써도 되는지. 'boxes'(글상자별 위치)가 없는 예전 캐시는 다시 인식 (표 넣기에 필요).
+    그림 영역 글자를 버리던 때의 캐시(all_text 없음)는 그림 영역이 없던 쪽만 쓰고, 있던 쪽은 다시 인식해 글자를 살린다."""
+    return (d.get("version") == CACHE_VERSION and "boxes" in d and d.get("min_score") == min_score
+            and bool(d.get("all_text") or d.get("keep_pictures") or not d.get("pictures")))
+
+
 def page_to_json(p: Page) -> dict:
     d = asdict(p)
     d["version"] = CACHE_VERSION
@@ -203,10 +206,10 @@ def page_from_json(d: dict) -> Page:
 # ----------------------------------------------------------------------------
 # 2) 화면 캡처 속 글·제외 영역 빼기 (머리말·꼬리말 자동 제거는 2026-11-15 에 뺌)
 # ----------------------------------------------------------------------------
-def drop_screenshots(pages: list[Page], found: dict | None = None) -> int:
-    """책 속 화면 캡처(검색 결과 화면 등) 글 빼기: 본문보다 아주 작은 글자(본문 높이 0.6배 미만)가 한곳에 빽빽하게
-    모인 곳(8개 이상, 세로 4줄·가로 6줄 이상 크기)을 그림으로 보고, 그 안의 글상자를 모두 뺀 뒤 줄을 다시 묶는다.
-    영역은 그림 후보(pictures)에 넣어 편집기에서 바로 '그림 넣기'를 할 수 있게 한다. 뺀 글상자 수."""
+def find_screenshots(pages: list[Page], found: dict | None = None) -> int:
+    """책 속 화면 캡처(검색 결과 화면 등) 찾기: 본문보다 아주 작은 글자(본문 높이 0.6배 미만)가 한곳에 빽빽하게
+    모인 곳(8개 이상, 세로 4줄·가로 6줄 이상 크기). 글자는 빼지 않고(2026-11-15 부터), 영역만 그림 후보(pictures)에 넣어
+    편집기에서 점선 '그림?' 으로 보이게 한다. 영역 안 글상자 수."""
     hs = [r.h for p in pages for r in p.rows]
     if not hs:
         return 0
@@ -229,11 +232,7 @@ def drop_screenshots(pages: list[Page], found: dict | None = None) -> int:
         if not regions:
             continue
         inside = lambda b: any(x1 <= (b[0] + b[2]) / 2 <= x2 and y1 <= (b[1] + b[3]) / 2 <= y2 for x1, y1, x2, y2 in regions)  # noqa: E731
-        keep = [b for b in p.boxes if not inside(b.box)]
-        total += len(p.boxes) - len(keep)
-        p.boxes = keep
-        import ocr_paddle as op
-        p.rows = group_rows([op.Item(b.text, b.score, list(b.box)) for b in keep])  # 같은 줄에 있던 본문 글은 남는다
+        total += sum(1 for b in p.boxes if inside(b.box))
         p.pictures = p.pictures + [[int(v) for v in r] for r in regions]
         if found is not None:
             found[p.no] = [[int(v) for v in r] for r in regions]
@@ -476,7 +475,7 @@ def write_markdown(paras: list[Para], path: Path, title: str, page_marks: bool, 
 def write_raw(pages: list[Page], path: Path) -> None:
     out = []
     for p in pages:
-        out.append(f"===== {p.no}쪽 ({p.name}){'  [그림 %d개 제외]' % len(p.pictures) if p.pictures else ''} =====")
+        out.append(f"===== {p.no}쪽 ({p.name}){'  [그림? %d곳, 글자는 남김]' % len(p.pictures) if p.pictures else ''} =====")
         out += [r.text for r in p.rows]
         out.append("")
     path.write_text("\n".join(out), encoding="utf-8")
@@ -501,13 +500,14 @@ def parse_args(argv=None):
     ap.add_argument("--wrap", choices=["word", "char"],
                     help="줄 이을 때: word(띄어 씀) | char(한글끼리 붙여 씀). "
                          "기본: 띄어쓰기 교정을 켜면 char(교정기가 필요한 곳만 띄움), 끄면 word")
-    ap.add_argument("--keep-pictures", action="store_true", help="그림 판정을 끄고 모든 글자 유지")
     ap.add_argument("--picture-fill", type=float, default=0.12,
-                    help="그림 판정 채움 비율 (기본 0.12, 낮출수록 선 그림까지 그림으로 봄)")
+                    help="편집기 점선 '그림?' 영역 찾기의 채움 비율 (기본 0.12). 글자는 버리지 않음")
     # 예전 명령줄 호환용 (머리말·꼬리말 자동 제거를 뺀 뒤로는 아무 일도 하지 않음)
     ap.add_argument("--header-band", type=float, default=0.1, help=argparse.SUPPRESS)
     ap.add_argument("--keep-headers", action="store_true", help=argparse.SUPPRESS)
-    ap.add_argument("--keep-screenshots", action="store_true", help="책 속 화면 캡처의 작은 글 빼기 끄기")
+    # 예전 명령줄 호환용 (그림·화면 캡처 속 글자를 버리지 않게 된 뒤로는 아무 일도 하지 않음)
+    ap.add_argument("--keep-pictures", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--keep-screenshots", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--min-score", type=float, default=0.5, help="이 신뢰도 미만 글상자는 버림 (기본 0.5)")
     ap.add_argument("--redo", action="store_true", help="캐시를 무시하고 모든 쪽을 다시 인식")
     ap.add_argument("--device", default="auto", help="auto(기본) | cpu | gpu")
@@ -543,9 +543,9 @@ def main(argv=None) -> int:
         cf = cache / f"{f.stem}.json"
         if not args.redo and cf.is_file() and cf.stat().st_mtime >= f.stat().st_mtime:
             d = json.loads(cf.read_text(encoding="utf-8"))
-            # 'boxes'(글상자별 위치)가 없는 예전 캐시는 다시 인식 (글자 결과는 같고, 표 넣기에 필요)
-            if d.get("version") == CACHE_VERSION and "boxes" in d and d.get("min_score") == args.min_score \
-                    and d.get("keep_pictures") == args.keep_pictures and d.get("picture_fill") == args.picture_fill:
+            # 'boxes'(글상자별 위치)가 없는 예전 캐시는 다시 인식 (글자 결과는 같고, 표 넣기에 필요).
+            # 그림 영역 글자를 버린 예전 캐시(all_text 없음)는 그림 영역이 없던 쪽만 그대로 쓰고, 있던 쪽은 다시 인식
+            if cache_usable(d, args.min_score):
                 p = page_from_json(d)
                 p.no = no
                 pages.append(p)
@@ -559,7 +559,7 @@ def main(argv=None) -> int:
         p = ocr_image(ocr, op.load_image(f), no, f.name, args)
         ocr_sec += time.monotonic() - t0
         d = page_to_json(p)
-        d.update(min_score=args.min_score, keep_pictures=args.keep_pictures, picture_fill=args.picture_fill)
+        d.update(min_score=args.min_score, all_text=True, picture_fill=args.picture_fill)
         cf.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
         pages.append(p)
         done_now += 1
@@ -576,20 +576,20 @@ def main(argv=None) -> int:
             f"전체 걸린 시간: {time.monotonic() - started:.1f}초\n", encoding="utf-8")
 
     write_raw(pages, out_dir / f"{title}.txt")
-    if not args.keep_screenshots:
-        screens: dict[int, list] = {}
-        n_ss = drop_screenshots(pages, screens)
-        for no, f in enumerate(files, start=1):  # 편집기가 점선 '그림?' 으로 보이게 캐시에 기록 (인식 결과는 그대로)
-            cf = cache / f"{f.stem}.json"
-            try:
-                d = json.loads(cf.read_text(encoding="utf-8"))
-                if d.get("screens", []) != screens.get(no, []):
-                    d["screens"] = screens.get(no, [])
-                    cf.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
-            except (OSError, ValueError):
-                pass
-        if n_ss:
-            print(f"화면 캡처로 보이는 영역의 작은 글 {n_ss}개를 뺐습니다 (편집기에서 점선 '그림?' 영역으로 보입니다. 끄려면 --keep-screenshots).")
+    # 화면 캡처로 보이는 영역: 글자는 남기고 편집기 점선 '그림?' 표시용으로만 캐시에 기록
+    screens: dict[int, list] = {}
+    n_ss = find_screenshots(pages, screens)
+    for no, f in enumerate(files, start=1):
+        cf = cache / f"{f.stem}.json"
+        try:
+            d = json.loads(cf.read_text(encoding="utf-8"))
+            if d.get("screens", []) != screens.get(no, []):
+                d["screens"] = screens.get(no, [])
+                cf.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+        except (OSError, ValueError):
+            pass
+    if n_ss:
+        print(f"화면 캡처로 보이는 영역의 작은 글 {n_ss}개는 남겨 두었습니다 (편집기에서 점선 '그림?' 영역으로 보입니다. 필요 없으면 지우세요).")
     n_ex = apply_exclusions(pages, out_dir, title)
     if n_ex:
         print(f"제외 영역(편집기 '영역 지우기')의 줄 {n_ex}개를 뺐습니다.")
@@ -607,7 +607,7 @@ def main(argv=None) -> int:
 
     n_pic = sum(len(p.pictures) for p in pages)
     chars = sum(len(x.text) for x in paras)
-    print(f"완료: {len(pages)}쪽 → 문단 {len(paras)}개, {chars:,}자, 그림 {n_pic}개 제외")
+    print(f"완료: {len(pages)}쪽 → 문단 {len(paras)}개, {chars:,}자 (그림·화면 캡처로 보이는 곳 {n_pic}곳도 글자는 남김)")
     print(f"  최종본: {md.resolve()}")
     print(f"  검토용: {(out_dir / f'{title}.txt').resolve()}")
     return 0

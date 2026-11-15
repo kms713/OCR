@@ -59,7 +59,6 @@ def continuations(folder: Path, out_dir: Path) -> list[tuple[int, str]]:
         if not cf.is_file():
             raise FileNotFoundError(f"OCR 캐시가 없습니다: {cf}")
         pages.append(eo.page_from_json(json.loads(cf.read_bytes().decode("utf-8"))))
-    eo.drop_screenshots(pages)
     eo.apply_exclusions(pages, out_dir, folder.name)
     paras = eo.build_paragraphs(pages, merge=False)
     return [(x.page, x.text) for x in paras if x.cont]
