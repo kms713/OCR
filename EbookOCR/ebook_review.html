@@ -303,7 +303,8 @@
   <label id="chapPickRow" style="display:block;margin:6px 0" hidden>목차에서 고르기 (고르면 챕터명·파트가 채워집니다)<br><select id="chapPick" style="max-width:100%"></select></label>
   <label style="display:block;margin:6px 0">챕터명 (필수) — 내보낼 때 ## 줄이 됩니다<br><input id="chapTitle" type="text" style="width:100%"></label>
   <label style="display:block;margin:6px 0">파트 (선택, 예: Part 1. 도구의 이해) — 파트가 있는 책만<br><input id="chapPart" type="text" style="width:100%"></label>
-  <label style="display:block;margin:6px 0">이 쪽의 책 쪽 번호 (필수, 정수)<br><input id="chapPage" type="number" step="1" style="width:120px"></label>
+  <label style="display:block;margin:6px 0">이 쪽의 책 쪽 번호 (정수 · 비우면 캡처 번호)<br><input id="chapPage" type="number" step="1" style="width:120px"></label>
+  <label style="display:block;margin:6px 0"><input type="checkbox" id="chapNoPrint"> 이 책은 인쇄 쪽 번호가 없음 (책 전체: 책 쪽 = 캡처 번호)</label>
   <label style="display:block;margin:6px 0">나누기
     <select id="chapSplit"><option value="chapter">챕터만</option><option value="topic">대주제까지</option></select></label>
   <label style="display:block;margin:6px 0"><input type="checkbox" id="chapExcl"> 이 챕터 전체 제외 (교정·내보내기·AI 제안에서 뺌)</label>
@@ -984,7 +985,7 @@ $("checklist").onclick = async () => {
   add("표 문법 확인 (행마다 칸 수가 다름)", badTable.map(no => [no, ""]), "없음");
   add("글이 없는 쪽 (OCR 글은 있었는데 지금 비어 있음)", pages.filter(no => !textOf(no).trim() && (rowTextsAll[no - 1] || []).some(t => sq(t).length >= 4)).map(no => [no, ""]), "없음", "그림만 있는 쪽이면 괜찮습니다");
   add("빠진 줄 의심 (처음 OCR 글에는 있는데 지금 글에서 찾을 수 없음)", pages.map(no => { const pg = rowBoxesAll[no - 1]; return [no, (pg ? missingOf(no, pg.rows, pg.w, pg.h) : missingOf(no, rowTextsAll[no - 1] || [])).length]; }).filter(x => x[1]).map(([no, k]) => [no, k + "줄"]), "없음", "일부러 지운 머리말·기호라면 괜찮습니다");
-  if (anchors.length) {  // 쪽 번호 자동 확인: OCR이 처음 읽은 바닥글·머리말 줄(제외 영역 적용 전)에 인쇄 쪽 번호가 남아 있으면 계산한 책 쪽과 비교
+  if (anchors.length && !noPrint) {  // 쪽 번호 자동 확인: OCR이 처음 읽은 바닥글·머리말 줄(제외 영역 적용 전)에 인쇄 쪽 번호가 남아 있으면 계산한 책 쪽과 비교
     const bad = [];
     pages.forEach(no => {
       const pg = rowBoxesAll[no - 1], want = bookNo(no); if (!pg || !pg.h || want === null) return;
@@ -1432,14 +1433,15 @@ let cfg = { chapters: [], page_fixes: [], skip_pages: [], toc: [] }, anchors = [
 function rebuildCfg() {
   const m = new Map(cfg.page_fixes.map(f => [f.capture, f.page]));
   cfg.chapters.forEach(c => m.set(c.capture, c.page));  // 같은 쪽이면 챕터 설정이 우선 (bookpages.py 와 같게)
-  anchors = [...m].sort((a, b) => a[0] - b[0]);
+  anchors = [...m].sort((a, b) => a[0] - b[0]); noPrint = !!cfg.no_print_pages;
   skipSet = new Set(cfg.skip_pages); exclSet = new Set();
   const chs = cfg.chapters.slice().sort((a, b) => a.capture - b.capture), n = book ? book.pages.length : 0;
   chs.forEach((c, i) => { if (!c.exclude) return; const end = i + 1 < chs.length ? chs[i + 1].capture - 1 : n; for (let k = c.capture; k <= end; k++) exclSet.add(k); });
 }
-function bookNo(c) { let b = null; for (const [cap, pg] of anchors) { if (cap <= c) b = pg + (c - cap); else break; } return b; }
+function bookNo(c) { if (noPrint) return c; let b = null; for (const [cap, pg] of anchors) { if (cap <= c) b = pg + (c - cap); else break; } return b; }
+let noPrint = false;  // 인쇄 쪽 번호 없는 책: 책 쪽 = 캡처 번호
 const bookLabel = c => { const n = bookNo(c); return n === null ? "앞" + c : String(n); };
-const pn = c => anchors.length ? "책 " + bookLabel(c) + "P (캡처 " + c + ")" : c + "쪽";  // 설정이 없는 책은 지금까지와 같게
+const pn = c => (anchors.length && !noPrint) ? "책 " + bookLabel(c) + "P (캡처 " + c + ")" : c + "쪽";  // 설정이 없는 책은 지금까지와 같게
 const inactive = c => skipSet.has(c) || exclSet.has(c);
 const activePages = () => book.pages.map((_, i) => i + 1).filter(c => !inactive(c));
 const chapOf = c => cfg.chapters.find(x => x.capture === c);
@@ -1478,6 +1480,7 @@ function openChapDlg() {
   const prev = cfg.chapters.filter(x => x.capture < page).sort((p, q) => q.capture - p.capture)[0];  // 같은 파트의 챕터는 앞 챕터의 값을 기본으로
   $("chapPart").value = ch ? (ch.part || "") : (prev ? prev.part || "" : "");
   $("chapPage").value = ch ? ch.page : (bookNo(page) !== null ? bookNo(page) : "");
+  $("chapNoPrint").checked = noPrint;
   $("chapSplit").value = ch ? ch.split : "chapter"; $("chapExcl").checked = ch ? ch.exclude : false;
   $("chapDel").hidden = !ch; $("chapErr").textContent = "";
   $("chapInfo").textContent = "글이 없는 쪽에서도 됩니다. 챕터명·파트는 내보낸 파일 머리에 나옵니다 (이 쪽 글에 같은 줄이 있으면 한 번만 씀).";
@@ -1488,9 +1491,9 @@ $("chapCancel").onclick = () => $("chapDlg").close();
 $("chapOk").onclick = async () => {
   const title = $("chapTitle").value.trim(), pg = $("chapPage").value.trim();
   if (!title) { $("chapErr").textContent = "챕터명을 쓰세요"; return; }
-  if (!/^-?\d+$/.test(pg)) { $("chapErr").textContent = "책 쪽 번호는 정수로 쓰세요"; return; }
-  const next = cloneCfg(); next.chapters = next.chapters.filter(c => c.capture !== page);
-  next.chapters.push({ capture: page, page: +pg, title, part: $("chapPart").value.trim(), split: $("chapSplit").value, exclude: $("chapExcl").checked });
+  if (pg !== "" && !/^-?\d+$/.test(pg)) { $("chapErr").textContent = "책 쪽 번호는 정수로 쓰세요 (비우면 캡처 번호)"; return; }
+  const next = cloneCfg(); next.no_print_pages = $("chapNoPrint").checked; next.chapters = next.chapters.filter(c => c.capture !== page);
+  next.chapters.push({ capture: page, page: pg === "" ? page : +pg, title, part: $("chapPart").value.trim(), split: $("chapSplit").value, exclude: $("chapExcl").checked });
   if (await saveCfg(next)) { $("chapDlg").close(); setStatus("챕터 시작을 저장했습니다: " + pn(page)); }
 };
 $("chapDel").onclick = async () => {
@@ -1619,7 +1622,7 @@ function tocItems() {  // [{level, text, page}] — 설정의 파트·챕터(##)
     if (m) {
       const pg = pageOfPos(pos), ch = chapOf(pg), t = normT(m[2]), d = dropped.get(pg) || new Set();
       if (ch && (t === normT(ch.title) || (ch.part && t === normT(ch.part))) && !d.has(t)) { d.add(t); dropped.set(pg, d); }
-      else items.push({ level: Math.max(2, m[1].length), text: m[2], page: pg, ord: pos });
+      else items.push({ level: Math.max(2, m[1].length), text: m[2], page: pg, ord: pos, stray: m[1].length <= 2 && cfg.chapters.length > 0 });  // 설정이 있는데 남은 #·## 줄
     }
     pos += line.length + 1;
   });
@@ -1632,7 +1635,8 @@ $("outlineBtn").onclick = () => {
   items.forEach(it => {
     const e = document.createElement("div"), warn = prev >= 2 && it.level > prev + 1;
     e.style.paddingLeft = Math.max(0, it.level - 1) * 18 + 4 + "px"; e.className = inactive(it.page) ? "off" : "";
-    e.textContent = (it.level > 1 ? "#".repeat(it.level) + " " : "") + it.text.replace(/\*+|<\/?u>/g, "") + (warn ? "  ⚠ 단계가 건너뜀" : "");
+    e.textContent = (it.level > 1 ? "#".repeat(it.level) + " " : "") + it.text.replace(/\*+|<\/?u>/g, "") + (warn ? "  ⚠ 단계가 건너뜀" : "") + (it.stray ? "  ⚠ 남은 ## 줄 — 챕터는 [챕터 시작]으로 정하니 ### 이하로 바꾸거나 지우세요" : "");
+    if (it.stray) e.style.color = "var(--low)";
     const g = document.createElement("span"); g.className = "pgn"; g.textContent = pn(it.page); e.appendChild(g);
     e.onclick = () => { $("tocDlg").close(); showPage(it.page, {}); };
     box.appendChild(e); prev = it.level;
@@ -1642,7 +1646,7 @@ $("outlineBtn").onclick = () => {
 $("tocClose").onclick = () => $("tocDlg").close();
 
 // ---- 시작 --------------------------------------------------------------
-const EDITOR_VERSION = "2026-11-15.2";  // ebook_review.py 의 EDITOR_VERSION 과 같게
+const EDITOR_VERSION = "2026-11-15.3";  // ebook_review.py 의 EDITOR_VERSION 과 같게
 (async function init() {
   try {
     let sv = ""; try { sv = (await api("/api/version")).version; } catch (e) {}

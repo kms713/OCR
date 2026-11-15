@@ -58,6 +58,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await go(3); await pg.click("#pageSkip"); await sleep(400);  // 챕터 시작 쪽도 빼기 → 챕터 설정은 살아 있음
   check("뺀 쪽에도 챕터 표시 유지", (await pg.innerText("#pgFlags")).includes("챕터 시작") && (await pg.innerText("#pgFlags")).includes("뺀 쪽"), await pg.innerText("#pgFlags"));
   await pg.click("#pageSkip"); await sleep(400);
+  // 인쇄 쪽 번호 없는 책: 쪽 번호 칸을 비우고 '인쇄 쪽 번호 없음'을 켜면 책 쪽 = 캡처 번호
+  await go(5); await pg.click("#chapStart"); await pg.fill("#chapTitle", "임시"); await pg.fill("#chapPage", ""); await pg.check("#chapNoPrint"); await pg.click("#chapOk"); await sleep(300);
+  check("인쇄 쪽 번호 없음: 쪽 이름은 캡처 번호", (await pg.innerText("#edTitle")).startsWith("5쪽"), await pg.innerText("#edTitle"));
+  await pg.click("#chapStart"); await pg.uncheck("#chapNoPrint"); await pg.click("#chapOk"); await sleep(300);
+  await pg.click("#chapStart"); await pg.click("#chapDel"); await sleep(300);
+  check("끄고 되돌리면 책 쪽 번호로", (await pg.innerText("#edTitle")).includes("책 3P (캡처 5)"), await pg.innerText("#edTitle"));
   check("화면 오류 없음", errs.length === 0, errs.join("|"));
   await br.close();
   process.exit(fails.length ? 1 : 0);

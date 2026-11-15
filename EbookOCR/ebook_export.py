@@ -337,33 +337,38 @@ def render_blocks(blocks: list[Block], page_marks: bool) -> list[str]:
     return lines
 
 
-def page_span(blocks: list[Block]) -> str:
-    labs = [b.text for b in blocks if b.kind == "page"]
-    if not labs:
+def page_span(blocks: list[Block], with_capture: bool = False) -> str:
+    """'쪽: p.21–p.48'. with_capture(인쇄 쪽 번호 없는 책)면 끝에 '(캡처 21–48)'."""
+    pgs = [b for b in blocks if b.kind == "page"]
+    if not pgs:
         return ""
-    return f"쪽: p.{labs[0]}" + (f"–p.{labs[-1]}" if labs[-1] != labs[0] else "")
+    a, z = pgs[0], pgs[-1]
+    out = f"쪽: p.{a.text}" + (f"–p.{z.text}" if z.text != a.text else "")
+    if with_capture:
+        out += f" (캡처 {a.page}" + (f"–{z.page}" if z.page != a.page else "") + ")"
+    return out
 
 
-def file_head(title: str, ch: Chapter, blocks: list[Block]) -> list[str]:
+def file_head(title: str, ch: Chapter, blocks: list[Block], with_capture: bool = False) -> list[str]:
     """파일 머리: 책 제목 / 파트(있을 때) / 쪽 범위 / ## 챕터명. 파일만 보고 어느 책·파트·챕터·쪽인지 알게 한다."""
     head = [f"# {title}"]
     if ch.part:
         head.append(f"파트: {ch.part}")
     if page_span(blocks):
-        head.append(page_span(blocks))
+        head.append(page_span(blocks, with_capture))
     head.append(f"## {ai_inline(ch.title)}")
     return head + [""]
 
 
-def build_chapter_file(title: str, ch: Chapter, blocks: list[Block], page_marks: bool) -> str:
-    return "\n".join(file_head(title, ch, blocks) + render_blocks(blocks, page_marks)).rstrip() + "\n"
+def build_chapter_file(title: str, ch: Chapter, blocks: list[Block], page_marks: bool, with_capture: bool = False) -> str:
+    return "\n".join(file_head(title, ch, blocks, with_capture) + render_blocks(blocks, page_marks)).rstrip() + "\n"
 
 
 def build_whole_ai(plan: Plan, title: str, page_marks: bool) -> str:
     """책 전체 한 파일: # 책제목, 쪽 범위, 그리고 챕터마다 (파트가 바뀌면 파트 줄) ## 챕터명 + 글."""
     kept = [c for c in plan.chapters if not c.exclude]
     allblocks = [b for c in kept for b in c.blocks]
-    lines = [f"# {title}"] + ([page_span(allblocks)] if page_span(allblocks) else []) + [""]
+    lines = [f"# {title}"] + ([page_span(allblocks, plan.labels.no_print)] if page_span(allblocks) else []) + [""]
     multi = len([c for c in kept if c.num]) > 0
     last_part = ""
     for c in kept:
@@ -513,9 +518,9 @@ def split_files(plan: Plan, title: str, page_marks: bool) -> list[tuple[str, str
         stem = f"{name}.앞부분" if ch.num == 0 else f"{name}.챕터{ch.num:02d}"
         groups = partition(ch)
         if has_content(groups[0]):
-            out.append((f"{stem}.md", build_chapter_file(title, ch, groups[0], page_marks)))
+            out.append((f"{stem}.md", build_chapter_file(title, ch, groups[0], page_marks, plan.labels.no_print)))
         for k, g in enumerate(groups[1:], start=1):
-            out.append((f"{stem}.대주제{k:02d}.md", build_chapter_file(title, ch, g, page_marks)))
+            out.append((f"{stem}.대주제{k:02d}.md", build_chapter_file(title, ch, g, page_marks, plan.labels.no_print)))
     return out
 
 
@@ -623,6 +628,14 @@ def main(argv=None) -> int:
     for label, p in made:
         print(f"  {label}: {p.resolve()}")
     print_summary(plan, files)
+    if cfg:  # 챕터 설정이 있는 책에 남은 # · ## 줄 (OCR이 큰 글자 줄에 붙인 ## 등. 챕터명·파트명과 같아 지워진 줄은 제외)
+        stray = [b for c in kept for b in c.blocks if b.kind == "heading" and b.level <= 2]
+        if stray:
+            print(f"[주의] 본문에 # 또는 ## 줄이 {len(stray)}개 남아 있습니다 (챕터는 [챕터 시작]으로 정하므로 ### 이하로 바꾸거나 지우세요):")
+            for b in stray[:30]:
+                print(f"       책 {plan.labels.label(b.page)}쪽 (캡처 {b.page}): {'#' * b.level} {b.text}")
+            if len(stray) > 30:
+                print(f"       … 외 {len(stray) - 30}개")
     if parsed.missing_alt:
         pages = ", ".join(f"캡처 {n}쪽" if n else "쪽 미상" for n in parsed.missing_alt)
         print(f"[주의] 설명이 없는 그림 {len(parsed.missing_alt)}개 ({pages}) — AI용 글에는 '설명 없음'으로 들어갑니다."

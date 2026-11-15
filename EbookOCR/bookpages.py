@@ -18,6 +18,7 @@
   page_fixes  쪽 번호 교정. 그 캡처 쪽부터 다음 설정이 나올 때까지 이 책 쪽 번호에서 이어집니다
   toc         목차 쪽(캡처)별 목차 항목 [{"capture": 2, "items": [{"level": 0, "text": "프롤로그"}, ...]}].
               내보낼 때 그 쪽의 OCR 글 대신 '**목차**' + 들여쓴 목록으로 씀
+  no_print_pages  true 면 인쇄 쪽 번호가 없는 책: 모든 쪽의 책 쪽 = 캡처 번호 (파일 머리 쪽: 줄 끝에 (캡처 N) 를 붙임)
   skip_pages  이 쪽 빼기. 그 쪽의 글만 내보내기에서 빼고, 쪽 번호는 그대로 차지합니다
 
 책 쪽 번호 = (캡처 c 이하에서 가장 가까운 설정의 page) + (c - 그 설정의 capture).
@@ -37,7 +38,7 @@ def config_path(out_dir: Path, title: str) -> Path:
 
 
 def empty_config() -> dict:
-    return {"chapters": [], "page_fixes": [], "skip_pages": [], "toc": []}
+    return {"chapters": [], "page_fixes": [], "skip_pages": [], "toc": [], "no_print_pages": False}
 
 
 def _int(v, what: str) -> int:
@@ -66,7 +67,8 @@ def clean_config(d) -> dict:
         split = c.get("split", "chapter")
         if split not in SPLITS:
             raise ValueError(f"캡처 {cap}쪽 나누기 값이 잘못됐습니다: {split!r}")
-        chapters[cap] = {"capture": cap, "page": _int(c.get("page"), f"캡처 {cap}쪽 책 쪽 번호"),
+        pg = c.get("page")  # 비워 두면(인쇄 쪽 번호가 없는 책) 캡처 번호를 쓴다
+        chapters[cap] = {"capture": cap, "page": cap if pg in (None, "") else _int(pg, f"캡처 {cap}쪽 책 쪽 번호"),
                          "title": title, "part": str(c.get("part", "") or "").strip(), "split": split,
                          "exclude": bool(c.get("exclude", False))}
     fixes: dict[int, dict] = {}
@@ -88,7 +90,8 @@ def clean_config(d) -> dict:
         if items and cap >= 1:
             toc[cap] = {"capture": cap, "items": items}
     return {"chapters": [chapters[k] for k in sorted(chapters)],
-            "page_fixes": [fixes[k] for k in sorted(fixes)], "skip_pages": skips, "toc": [toc[k] for k in sorted(toc)]}
+            "page_fixes": [fixes[k] for k in sorted(fixes)], "skip_pages": skips, "toc": [toc[k] for k in sorted(toc)],
+            "no_print_pages": bool(d.get("no_print_pages", False))}
 
 
 def toc_pages(cfg: dict | None) -> set[int]:
@@ -120,11 +123,14 @@ class BookPages:
 
     def __init__(self, cfg: dict | None):
         cfg = cfg or empty_config()
+        self.no_print = bool(cfg.get("no_print_pages"))  # 인쇄 쪽 번호가 없는 책: 책 쪽 = 캡처 번호
         anchors: dict[int, int] = {f["capture"]: f["page"] for f in cfg["page_fixes"]}
         anchors.update({c["capture"]: c["page"] for c in cfg["chapters"]})  # 같은 쪽이면 챕터 설정이 우선
         self.anchors = sorted(anchors.items())
 
     def number(self, c: int) -> int | None:
+        if self.no_print:
+            return c
         base = None
         for cap, page in self.anchors:
             if cap <= c:

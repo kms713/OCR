@@ -123,6 +123,30 @@ def main() -> int:
         whole = lines(root / "책_OCR" / "책_AI용.md")
         check("쪽 표시는 앞N 으로", "[p.앞4]" in whole, whole[:12])
         check("글 속 ## 제목은 챕터로", any(f.name.startswith("책.챕터") for f in d.glob("*.md")), names)
+        print("[인쇄 쪽 번호 없는 책]")
+    with tempfile.TemporaryDirectory() as t:
+        root = Path(t)
+        folder = make_book(root, False)
+        out = root / "책_OCR"
+        cfg = {"no_print_pages": True, "chapters": [
+            {"capture": 3, "page": "", "title": "1장 시작", "split": "chapter"},
+            {"capture": 6, "page": None, "title": "2장 도구", "split": "chapter"}]}
+        (out / "책_장설정.json").write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+        rc, log = export(folder)
+        d = out / "책_AI용_나눔"
+        c1 = lines(d / "책.챕터01.md")
+        check("쪽 번호 칸을 비우면 캡처 번호", c1[:4] == ["# 책", "쪽: p.3–p.5 (캡처 3–5)", "## 1장 시작", "[p.3]"], c1[:5])
+        check("앞부분도 캡처 번호", lines(d / "책.앞부분.md")[1] == "쪽: p.1–p.2 (캡처 1–2)", lines(d / "책.앞부분.md")[:2])
+    print("[남은 # · ## 줄 경고]")
+    with tempfile.TemporaryDirectory() as t:
+        root = Path(t)
+        folder = make_book(root, True)
+        out = root / "책_OCR"
+        (out / "책_교정.md").write_text(SAMPLE_MD.replace("본문5", "## OCR이 붙인 큰 글자\n\n본문5"), encoding="utf-8")
+        rc, log = export(folder)
+        check("경고 출력 (쪽 번호와 줄)", "[주의] 본문에 # 또는 ## 줄이 1개" in log and "OCR이 붙인 큰 글자" in log and "캡처 5" in log, log)
+        check("챕터명과 같아 지워진 줄은 경고 안 함", "2장 도구" not in log.split("[주의]")[1].split("\n")[1] if "[주의]" in log else False, log)
+        check("경고해도 내보내기는 끝남", rc == 0 and (out / "책_AI용_나눔" / "책.챕터01.md").is_file())
     print("\n" + ("모두 통과" if not fails else f"실패 {len(fails)}건: {fails}"))
     return 1 if fails else 0
 
