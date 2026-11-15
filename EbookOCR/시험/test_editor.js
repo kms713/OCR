@@ -10,6 +10,33 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const go = async n => { await pg.fill("#pageNo", String(n)); await pg.dispatchEvent("#pageNo", "change"); await sleep(300); };
   await go(3); await pg.click("#chapStart"); await pg.fill("#chapTitle", "1장 시작"); await pg.fill("#chapPart", "Part 1. 기초"); await pg.fill("#chapPage", "1"); await pg.click("#chapOk"); await sleep(300);
   check("글 없는 쪽에서 챕터 시작", (await pg.innerText("#pgFlags")).includes("챕터 시작: 1장 시작"), await pg.innerText("#pgFlags"));
+  // 목차 입력 (캡처 2)
+  await go(2); await pg.click("#tocInput");
+  const pre = await pg.inputValue("#tocInText");
+  check("목차 창이 이 쪽 글로 채워짐", pre === "1장 시작\n2장 도구", JSON.stringify(pre));
+  await pg.fill("#tocInText", "프롤로그\n연구의 고통\nPart 1. 기초\n1장 시작 2장 도구");
+  await pg.evaluate(() => { const a = document.getElementById("tocInText"); a.focus(); const k = a.value.indexOf("연구"); a.setSelectionRange(k, k); });
+  await pg.keyboard.press("Tab");
+  await pg.evaluate(() => { const a = document.getElementById("tocInText"); a.focus(); const k = a.value.indexOf("1장 시작") ; a.setSelectionRange(k, k); });
+  await pg.keyboard.press("Tab");
+  await pg.evaluate(() => { const a = document.getElementById("tocInText"); a.focus(); const k = a.value.indexOf("2장 도구"); a.setSelectionRange(k, k); });
+  await pg.keyboard.press("Enter");  // 붙은 두 항목 나누기 (같은 단계로 이어짐)
+  const tv = await pg.inputValue("#tocInText");
+  check("Tab 들여쓰기·Enter 나누기", tv === "프롤로그\n  연구의 고통\nPart 1. 기초\n  1장 시작 \n  2장 도구", JSON.stringify(tv));
+  await pg.keyboard.press("Shift+Tab");  // 2장 도구 줄을 한 단계 밖으로
+  await pg.fill("#tocInText", "프롤로그\n  연구의 고통\nPart 1. 기초\n  1장 시작\n  2장 도구");
+  await pg.click("#tocInOk"); await sleep(300);
+  check("목차 저장 표시", (await pg.innerText("#pgFlags")).includes("목차 저장됨"), await pg.innerText("#pgFlags"));
+  await go(2);  // 본문 글 칸: '-' 목록 줄에서 Tab/Shift+Tab
+  await pg.evaluate(() => { ed.focus(); ed.setSelectionRange(3, 3); });
+  await pg.keyboard.press("Tab");
+  check("본문 목록 줄 Tab 들여쓰기", (await pg.inputValue("#editor")).startsWith("  - 1장 시작"), JSON.stringify(await pg.inputValue("#editor")));
+  await pg.keyboard.press("Shift+Tab");
+  check("본문 목록 줄 Shift+Tab 내어쓰기", (await pg.inputValue("#editor")).startsWith("- 1장 시작"), JSON.stringify(await pg.inputValue("#editor")));
+  await go(6); await pg.click("#chapStart");
+  await pg.selectOption("#chapPick", { label: "\u00a0\u00a02장 도구" }); 
+  check("목차에서 챕터명·파트 고르기", (await pg.inputValue("#chapTitle")) === "2장 도구" && (await pg.inputValue("#chapPart")) === "Part 1. 기초", (await pg.inputValue("#chapTitle")) + "|" + (await pg.inputValue("#chapPart")));
+  await pg.click("#chapCancel");
   await go(6); await pg.click("#chapStart");
   check("파트 칸 미리 채움", (await pg.inputValue("#chapPart")) === "Part 1. 기초", await pg.inputValue("#chapPart"));
   await pg.fill("#chapTitle", "2장 도구"); await pg.fill("#chapPage", "4"); await pg.selectOption("#chapSplit", "topic"); await pg.click("#chapOk"); await sleep(300);
@@ -26,7 +53,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check("고른 글을 제목으로 떼기", got === "…끝난다.\n\n### 2-1 설치\n\n첫 문장…", JSON.stringify(got));
   await sleep(2200);
   await pg.click("#pageList"); check("쪽 목록 9칸", (await pg.locator(".pchip").count()) === 9, ""); await pg.click("#plClose");
-  await pg.click("#tocBtn"); const toc = await pg.innerText("#tocList"); await pg.click("#tocClose");
+  await pg.click("#outlineBtn"); const toc = await pg.innerText("#tocList"); await pg.click("#tocClose");
   check("목차에 챕터·대주제", toc.includes("## 2장 도구") && toc.includes("### 2-1 설치") && toc.includes("파트: Part 1. 기초"), toc);
   await go(3); await pg.click("#pageSkip"); await sleep(400);  // 챕터 시작 쪽도 빼기 → 챕터 설정은 살아 있음
   check("뺀 쪽에도 챕터 표시 유지", (await pg.innerText("#pgFlags")).includes("챕터 시작") && (await pg.innerText("#pgFlags")).includes("뺀 쪽"), await pg.innerText("#pgFlags"));

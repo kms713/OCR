@@ -23,6 +23,7 @@ CONFIG = {
     ],
     "page_fixes": [{"capture": 9, "page": 8}],
     "skip_pages": [7],
+    "toc": [{"capture": 2, "items": [{"level": 0, "text": "프롤로그"}, {"level": 1, "text": "연구의 고통"}, {"level": 0, "text": "Part 1. 도구의 이해"}, {"level": 1, "text": "1장. 무엇이 다른가"}]}],
 }
 fails = []
 
@@ -86,6 +87,7 @@ def main() -> int:
         check("대주제 파일 뒤에 [p.8]", "[p.8]" in c3 and "첫 문장…" in c3, c3)
         check("챕터02 끝에 [p.6]과 …끝난다.", c2[-2:] == ["[p.6]", "…끝난다."], c2[-3:])
         a0 = lines(d / "책.앞부분.md")
+        check("목차 쪽은 목록으로", a0[4:10] == ["[p.앞2]", "**목차**", "- 프롤로그", "  - 연구의 고통", "- Part 1. 도구의 이해", "  - 1장. 무엇이 다른가"] and "차례" not in "".join(a0) and not any("- 2장 도구" == l for l in a0), a0)
         check("앞부분 머리", a0[:4] == ["# 책", "쪽: p.앞1–p.앞2", "## 앞부분", "[p.앞1]"], a0[:5])
         check("요약에 뺀 쪽 표시", "뺀 쪽: 캡처 7" in log, log)
         docx_ok = False

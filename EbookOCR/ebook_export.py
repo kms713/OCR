@@ -30,7 +30,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from bookpages import BookPages, count_pages, empty_config, config_path, load_config
+from bookpages import BookPages, count_pages, empty_config, config_path, load_config, toc_pages
 
 PAGE_MARK = re.compile(r"^<!--\s*p\.(\d+)(\s*이어짐)?\s*-->\s*$")  # 이어짐: 앞 쪽 마지막 문단과 이어 붙임
 FIGURE = re.compile(r"^!\[([^\]]*)\]\(([^)\s]+)\)\s*$")
@@ -123,9 +123,9 @@ def table_cells(line: str) -> list[str]:
     return [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", line.strip()[1:-1])]
 
 
-def parse_markdown(text: str, base: Path, skip_pages=frozenset()) -> Parsed:
+def parse_markdown(text: str, base: Path, skip_pages=frozenset(), text_off=frozenset()) -> Parsed:
     """교정 글 → 블록 목록. 제목 단계는 # 개수 그대로(## 챕터, ### 사용자 1단계 … ###### 4단계).
-    파일 첫 줄의 '# 책제목'은 건너뛴다(책 제목은 폴더 이름·--title 에서 가져옴). skip_pages: 글을 뺄 캡처 쪽 번호."""
+    파일 첫 줄의 '# 책제목'은 건너뛴다(책 제목은 폴더 이름·--title 에서 가져옴). skip_pages: 글을 뺄 캡처 쪽 번호. text_off: 글을 다른 것(저장한 목차)으로 바꿀 쪽 — 쪽 표시만 남기고 글은 버림."""
     out = Parsed()
     page = 0
     first = True
@@ -149,6 +149,9 @@ def parse_markdown(text: str, base: Path, skip_pages=frozenset()) -> Parsed:
             join_next = bool(m.group(2)) and page not in skip_pages
             if page not in skip_pages:
                 out.blocks.append(Block("page", page=page))
+            continue
+        if page in text_off:
+            close_table()
             continue
         if page in skip_pages:  # 뺀 쪽: 글도 그림도 쓰지 않는다 (쪽 번호는 그대로 차지)
             close_table()
@@ -232,6 +235,7 @@ def build_plan(parsed: Parsed, cfg: dict | None, n_pages: int, legacy_split: int
     bp = BookPages(cfg)
     chap_at = {c["capture"]: c for c in cfg["chapters"]}
     skip = set(cfg["skip_pages"])
+    toc_at = {t["capture"]: [(i["level"], i["text"]) for i in t["items"]] for t in cfg.get("toc", [])}
     chapters = [Chapter(0, "앞부분", "", 0 if has_cfg else legacy_split, False, 1)]
     st = {"cur": chapters[0], "page": 0, "drop": set()}
 
@@ -248,6 +252,8 @@ def build_plan(parsed: Parsed, cfg: dict | None, n_pages: int, legacy_split: int
         if c in skip:  # 글만 뺀다: 쪽 표시는 쓰지 않고, 챕터 설정은 살아 있다
             return
         st["cur"].blocks.append(Block("page", bp.label(c), page=c))  # 새 챕터가 쪽 맨 위에서 시작하면 쪽 표시도 새 챕터 것
+        if c in toc_at:  # 저장한 목차: 이 쪽의 OCR 글 대신 (제목이 아니라서 나누기·제목 겹침 처리에 안 잡힘)
+            st["cur"].blocks.append(Block("toc", page=c, rows=toc_at[c]))
 
     last = 0
     for b in parsed.blocks:
@@ -321,6 +327,8 @@ def render_blocks(blocks: list[Block], page_marks: bool) -> list[str]:
             if b.head:
                 tl.insert(1, "|" + "|".join(["---"] * n) + "|")
             lines += tl + [""]
+        elif b.kind == "toc":
+            lines += ["**목차**", ""] + ["  " * lv + "- " + ai_inline(t) for lv, t in b.rows] + [""]
         elif b.kind == "page":
             if page_marks:
                 lines += [f"[p.{b.text}]", ""]  # b.text = 책 쪽 번호 (앞부분은 '앞3')
@@ -456,6 +464,14 @@ def build_docx(blocks: list[Block], title: str, base: Path, path: Path, captions
                 r.font.size = Pt(9)
                 r.font.italic = True
                 r.font.color.rgb = RGBColor(0x66, 0x70, 0x85)
+        elif b.kind == "toc":
+            tp = doc.add_paragraph()
+            tp.add_run("목차").bold = True
+            for lv, t in b.rows:
+                p2 = doc.add_paragraph()
+                p2.paragraph_format.left_indent = Cm(0.6 * (lv + 1))
+                p2.paragraph_format.space_after = Pt(2)
+                add_inline(p2, "• " + t)
         elif b.kind == "para":
             add_inline(doc.add_paragraph(), b.text)
         elif b.kind == "table":
@@ -571,7 +587,8 @@ def main(argv=None) -> int:
     except ValueError as e:
         print(f"[오류] {e}")
         return 1
-    parsed = parse_markdown(src.read_bytes().decode("utf-8"), out_dir, set(cfg["skip_pages"]) if cfg else frozenset())
+    parsed = parse_markdown(src.read_bytes().decode("utf-8"), out_dir, set(cfg["skip_pages"]) if cfg else frozenset(),
+                            toc_pages(cfg) - set(cfg["skip_pages"]) if cfg else frozenset())
     plan = build_plan(parsed, cfg, count_pages(folder), args.split_level)
     kept = [c for c in plan.chapters if not c.exclude]
     figs = [b for c in kept for b in c.blocks if b.kind == "figure"]

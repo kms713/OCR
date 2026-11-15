@@ -16,6 +16,8 @@
   chapters    챕터 시작 쪽. capture = 캡처 쪽 번호, page = 그 쪽의 책 쪽 번호, title = 챕터명(내보낼 때 ## 줄), part = 파트(선택),
               split = "chapter"(챕터만) | "topic"(대주제까지 나눔), exclude = 이 챕터 전체를 내보내기·교정에서 뺌
   page_fixes  쪽 번호 교정. 그 캡처 쪽부터 다음 설정이 나올 때까지 이 책 쪽 번호에서 이어집니다
+  toc         목차 쪽(캡처)별 목차 항목 [{"capture": 2, "items": [{"level": 0, "text": "프롤로그"}, ...]}].
+              내보낼 때 그 쪽의 OCR 글 대신 '**목차**' + 들여쓴 목록으로 씀
   skip_pages  이 쪽 빼기. 그 쪽의 글만 내보내기에서 빼고, 쪽 번호는 그대로 차지합니다
 
 책 쪽 번호 = (캡처 c 이하에서 가장 가까운 설정의 page) + (c - 그 설정의 capture).
@@ -35,7 +37,7 @@ def config_path(out_dir: Path, title: str) -> Path:
 
 
 def empty_config() -> dict:
-    return {"chapters": [], "page_fixes": [], "skip_pages": []}
+    return {"chapters": [], "page_fixes": [], "skip_pages": [], "toc": []}
 
 
 def _int(v, what: str) -> int:
@@ -75,8 +77,22 @@ def clean_config(d) -> dict:
         if cap not in chapters:  # 챕터 시작 쪽의 번호는 챕터 설정이 정한다
             fixes[cap] = {"capture": cap, "page": _int(f.get("page"), f"캡처 {cap}쪽 책 쪽 번호")}
     skips = sorted({_int(x, "뺄 쪽") for x in d.get("skip_pages", []) or []})
+    toc: dict[int, dict] = {}
+    for t in d.get("toc", []) or []:
+        cap = _int(t.get("capture"), "목차 캡처 쪽")
+        items = []
+        for it in t.get("items", []) or []:
+            text = str(it.get("text", "")).strip()
+            if text:
+                items.append({"level": max(0, min(5, _int(it.get("level", 0), "목차 단계"))), "text": text})
+        if items and cap >= 1:
+            toc[cap] = {"capture": cap, "items": items}
     return {"chapters": [chapters[k] for k in sorted(chapters)],
-            "page_fixes": [fixes[k] for k in sorted(fixes)], "skip_pages": skips}
+            "page_fixes": [fixes[k] for k in sorted(fixes)], "skip_pages": skips, "toc": [toc[k] for k in sorted(toc)]}
+
+
+def toc_pages(cfg: dict | None) -> set[int]:
+    return {t["capture"] for t in (cfg or {}).get("toc", [])}
 
 
 def load_config(path: Path) -> dict | None:

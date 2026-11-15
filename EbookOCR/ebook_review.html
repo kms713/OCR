@@ -164,11 +164,12 @@
   <button id="nextUnchecked" title="아직 확인하지 않은 다음 쪽 (Alt+V)">다음 미확인 쪽</button>
   <span id="progress"></span>
   <span class="sep"></span>
+  <button id="tocInput" title="이 쪽이 목차 쪽이면 누름: 이 쪽 글을 한 줄에 한 항목으로 채운 창에서 Tab/Shift+Tab 으로 단계를 맞춤. 저장하면 내보낼 때 이 쪽 글 대신 들여쓴 목차 목록이 나감">목차</button>
   <button id="chapStart" title="이 쪽을 챕터 시작으로 정함 (챕터 제목·책 쪽 번호·나누기·제외). 글이 없는 쪽에서도 됨">챕터 시작</button>
   <button id="pageFix" title="이 쪽의 책 쪽 번호를 새로 넣음. 뒤 쪽은 이 번호에서 이어짐">쪽 번호 교정</button>
   <button id="pageSkip" title="이 쪽의 글만 내보내기에서 뺌 (책 쪽 번호는 그대로 차지). 다시 누르면 되돌림">이 쪽 빼기</button>
   <button id="pageList" title="모든 쪽을 책 쪽 번호와 표시로 한눈에 보기">쪽 목록</button>
-  <button id="tocBtn" title="책 전체 제목을 단계별로 보기 (제목 단계가 잘못 붙은 곳 찾기)">목차</button>
+  <button id="outlineBtn" title="책 전체 제목(## 챕터, ### …)을 단계별로 보기 (제목 단계가 잘못 붙은 곳 찾기)">제목 구조</button>
   <span class="sep"></span>
   <button id="nextSug" title="AI 교정 제안이 남은 다음 쪽으로 이동 (Alt+S)" hidden>다음 제안 쪽</button>
   <button id="cropMode" title="이미지에서 영역을 끌어 그림으로 넣기 (Alt+G)">그림 넣기 모드</button>
@@ -288,9 +289,18 @@
   <div class="row"><button id="replCancel">취소</button><button id="replOk" class="on">선택한 곳 바꾸기</button></div>
 </dialog>
 
+<dialog id="tocInDlg" class="dlgwide">
+  <h2 id="tocInH">목차 입력</h2>
+  <div style="color:var(--muted);font-size:12px;margin-bottom:6px">한 줄이 한 항목입니다. <b>Tab = 한 단계 안으로, Shift+Tab = 한 단계 밖으로</b>, 커서 위치에서 Enter 로 줄을 나눕니다(OCR이 붙여 놓은 두 항목 분리). 줄을 합치려면 줄 끝에서 Delete. 틀린 글자도 여기서 고치세요. 목차가 여러 쪽이면 각 쪽에서 이어 입력합니다.</div>
+  <textarea id="tocInText" spellcheck="false" style="min-height:46vh;font:14px/1.7 ui-monospace,'Cascadia Mono','맑은 고딕',monospace;white-space:pre;tab-size:2"></textarea>
+  <div id="tocInInfo" style="color:var(--muted);font-size:12px"></div>
+  <div class="row"><button id="tocInDel">목차 해제 (OCR 글로 되돌림)</button><button id="tocInCancel">취소</button><button id="tocInOk" class="on">저장</button></div>
+</dialog>
+
 <dialog id="chapDlg">
   <h2 id="chapH">챕터 시작</h2>
   <div style="color:var(--muted);font-size:12px;margin-bottom:6px" id="chapInfo"></div>
+  <label id="chapPickRow" style="display:block;margin:6px 0" hidden>목차에서 고르기 (고르면 챕터명·파트가 채워집니다)<br><select id="chapPick" style="max-width:100%"></select></label>
   <label style="display:block;margin:6px 0">챕터명 (필수) — 내보낼 때 ## 줄이 됩니다<br><input id="chapTitle" type="text" style="width:100%"></label>
   <label style="display:block;margin:6px 0">파트 (선택, 예: Part 1. 도구의 이해) — 파트가 있는 책만<br><input id="chapPart" type="text" style="width:100%"></label>
   <label style="display:block;margin:6px 0">이 쪽의 책 쪽 번호 (필수, 정수)<br><input id="chapPage" type="number" step="1" style="width:120px"></label>
@@ -311,13 +321,13 @@
 
 <dialog id="plDlg" class="dlgwide">
   <h2>쪽 목록</h2>
-  <div style="color:var(--muted);font-size:12px">칸마다 책 쪽 번호(아래 작은 글씨는 캡처 번호). 파랑 = 챕터 시작, 초록 점선 = 쪽 번호 교정, 취소선·빨강 = 뺀 쪽·제외한 챕터, 초록 테두리 = 확인 완료.</div>
+  <div style="color:var(--muted);font-size:12px">칸마다 책 쪽 번호(아래 작은 글씨는 캡처 번호). 파랑 = 챕터 시작, 초록 점선 = 쪽 번호 교정, ☰ = 목차 저장, 취소선·빨강 = 뺀 쪽·제외한 챕터, 초록 테두리 = 확인 완료.</div>
   <div id="plBody" style="max-height:60vh;overflow:auto;margin:8px 0"></div>
   <div class="row"><button id="plClose">닫기</button></div>
 </dialog>
 
 <dialog id="tocDlg" class="dlgwide">
-  <h2>목차 — 책 전체 제목</h2>
+  <h2>제목 구조 — 책 전체 제목</h2>
   <div style="color:var(--muted);font-size:12px">제목 단계별로 들여 썼습니다. 누르면 그 쪽으로 갑니다. 단계가 건너뛰거나 엉뚱한 곳을 찾는 데 쓰세요.</div>
   <div id="tocList" style="max-height:60vh;overflow:auto;margin:8px 0"></div>
   <div class="row"><button id="tocClose">닫기</button></div>
@@ -1418,7 +1428,7 @@ window.addEventListener("keydown", e => {
 });
 
 // ---- 장 설정: 챕터 시작·쪽 번호 교정·이 쪽 빼기 (책 쪽 번호는 표시·내보내기에서만 계산, 도구 안 쪽 번호는 그대로) ----
-let cfg = { chapters: [], page_fixes: [], skip_pages: [] }, anchors = [], exclSet = new Set(), skipSet = new Set();
+let cfg = { chapters: [], page_fixes: [], skip_pages: [], toc: [] }, anchors = [], exclSet = new Set(), skipSet = new Set();
 function rebuildCfg() {
   const m = new Map(cfg.page_fixes.map(f => [f.capture, f.page]));
   cfg.chapters.forEach(c => m.set(c.capture, c.page));  // 같은 쪽이면 챕터 설정이 우선 (bookpages.py 와 같게)
@@ -1433,11 +1443,13 @@ const pn = c => anchors.length ? "책 " + bookLabel(c) + "P (캡처 " + c + ")" 
 const inactive = c => skipSet.has(c) || exclSet.has(c);
 const activePages = () => book.pages.map((_, i) => i + 1).filter(c => !inactive(c));
 const chapOf = c => cfg.chapters.find(x => x.capture === c);
+const tocOf = c => (cfg.toc || []).find(x => x.capture === c);
 const fixOf = c => cfg.page_fixes.find(x => x.capture === c);
 function pageFlags(c) {
   const f = [], ch = chapOf(c);
   if (ch) f.push("챕터 시작: " + ch.title + (ch.part ? " [" + ch.part + "]" : "") + (ch.split === "topic" ? " (### 에서도 나눔)" : "") + (ch.exclude ? " — 제외" : ""));
   if (fixOf(c)) f.push("쪽 번호 교정");
+  if (tocOf(c)) f.push("목차 저장됨 (내보낼 때 OCR 글 대신 목차 목록)");
   if (skipSet.has(c)) f.push("뺀 쪽"); else if (exclSet.has(c)) f.push("제외한 챕터");
   return f;
 }
@@ -1469,7 +1481,7 @@ function openChapDlg() {
   $("chapSplit").value = ch ? ch.split : "chapter"; $("chapExcl").checked = ch ? ch.exclude : false;
   $("chapDel").hidden = !ch; $("chapErr").textContent = "";
   $("chapInfo").textContent = "글이 없는 쪽에서도 됩니다. 챕터명·파트는 내보낸 파일 머리에 나옵니다 (이 쪽 글에 같은 줄이 있으면 한 번만 씀).";
-  $("chapDlg").showModal(); $("chapTitle").focus();
+  fillChapPick(); $("chapDlg").showModal(); $("chapTitle").focus();
 }
 $("chapStart").onclick = openChapDlg;
 $("chapCancel").onclick = () => $("chapDlg").close();
@@ -1512,13 +1524,86 @@ $("pageList").onclick = () => {
   for (let c = 1; c <= book.pages.length; c++) {
     const e = document.createElement("span"), f = pageFlags(c);
     e.className = "pchip" + (c === page ? " cur" : "") + (chapOf(c) ? " chap" : "") + (fixOf(c) ? " fix" : "") + (inactive(c) ? " off" : "") + (checkedSet.has(c) ? " done" : "");
-    e.innerHTML = (chapOf(c) ? "📖 " : fixOf(c) ? "✎ " : skipSet.has(c) ? "✂ " : exclSet.has(c) ? "⊘ " : "") + "<b>" + bookLabel(c) + '</b><span style="color:var(--muted);font-size:10px"> (' + c + ")</span>";
+    e.innerHTML = (chapOf(c) ? "📖 " : tocOf(c) ? "☰ " : fixOf(c) ? "✎ " : skipSet.has(c) ? "✂ " : exclSet.has(c) ? "⊘ " : "") + "<b>" + bookLabel(c) + '</b><span style="color:var(--muted);font-size:10px"> (' + c + ")</span>";
     e.title = f.join(" · ") || "캡처 " + c; e.onclick = () => { $("plDlg").close(); showPage(c, {}); };
     body.appendChild(e);
   }
   $("plDlg").showModal();
 };
 $("plClose").onclick = () => $("plDlg").close();
+// ---- 목차 입력 (2-7): 한 줄 한 항목, Tab/Shift+Tab 으로 단계. 저장한 쪽은 내보낼 때 OCR 글 대신 들여쓴 목록 ----
+const IND = "  ";
+function tocLinesOf(items) { return items.map(it => IND.repeat(it.level) + it.text).join("\n"); }
+function tocItemsFrom(text) {
+  return text.split("\n").map(l => { const m = /^( *)(.*)$/.exec(l.replace(/\t/g, IND)); return { level: Math.min(5, Math.floor(m[1].length / 2)), text: m[2].trim() }; }).filter(x => x.text);
+}
+function ocrLinesForToc() {  // 이 쪽 글을 한 줄에 한 항목으로 (제목·목록 표시는 뗌). 글이 없으면 OCR 줄
+  const own = ed.value.split("\n").map(l => l.replace(/^\s*(#{1,6}\s+|[-*+]\s+|>\s?)/, "").trim()).filter(l => l && !/^!\[|^<!--/.test(l));
+  if (own.length) return own;
+  return ((rowsData[page] && rowsData[page].rows) || []).map(r => r.text.trim()).filter(Boolean);
+}
+$("tocInput").onclick = () => {
+  const t = tocOf(page);
+  $("tocInH").textContent = "목차 입력 — " + pn(page);
+  $("tocInText").value = t ? tocLinesOf(t.items) : ocrLinesForToc().join("\n");
+  $("tocInDel").hidden = !t;
+  $("tocInInfo").textContent = t ? "저장된 목차를 불러왔습니다." : "이 쪽 글을 한 줄에 한 항목으로 채웠습니다. 단계만 맞추고 틀린 글자를 고치세요.";
+  $("tocInDlg").showModal(); const a = $("tocInText"); a.focus(); a.setSelectionRange(0, 0);
+};
+$("tocInText").addEventListener("keydown", e => {
+  const a = e.target, v = a.value;
+  const [ls, le] = lineAt(v, a.selectionStart); const eEnd = lineAt(v, Math.max(a.selectionStart, a.selectionEnd - (a.selectionEnd > a.selectionStart && v[a.selectionEnd - 1] === "\n" ? 1 : 0)))[1];
+  const rewrite = (fn) => {  // 선택한 줄들을 fn 으로 바꿈
+    const lines = v.slice(ls, eEnd).split("\n").map(fn), nv = v.slice(0, ls) + lines.join("\n") + v.slice(eEnd);
+    a.focus(); a.setSelectionRange(ls, eEnd);
+    let ok = false; try { ok = document.execCommand("insertText", false, lines.join("\n")); } catch (_) {}
+    if (!ok || a.value !== nv) a.value = nv;
+    a.setSelectionRange(ls, ls + lines.join("\n").length);
+  };
+  if (e.key === "Tab") {
+    e.preventDefault();
+    if (e.shiftKey) rewrite(l => l.replace(/^ {1,2}/, "")); else rewrite(l => l.trim() ? (l.match(/^ */)[0].length >= 10 ? l : IND + l) : l);
+  } else if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey) {  // 줄 나누기: 같은 단계로 이어서
+    e.preventDefault();
+    const ind = /^ */.exec(v.slice(ls, le))[0], ins = "\n" + ind;
+    let ok = false; try { ok = document.execCommand("insertText", false, ins); } catch (_) {}
+    if (!ok) { const p0 = a.selectionStart; a.setRangeText(ins, p0, a.selectionEnd, "end"); }
+  }
+});
+$("tocInCancel").onclick = () => $("tocInDlg").close();
+$("tocInOk").onclick = async () => {
+  const items = tocItemsFrom($("tocInText").value), next = cloneCfg();
+  next.toc = (next.toc || []).filter(x => x.capture !== page);
+  if (items.length) next.toc.push({ capture: page, items });
+  if (await saveCfg(next)) { $("tocInDlg").close(); setStatus(items.length ? "목차를 저장했습니다 (" + items.length + "항목) — 내보낼 때 이 쪽 글 대신 목차 목록이 나갑니다" : "목차가 비어 해제했습니다"); }
+};
+$("tocInDel").onclick = async () => {
+  const next = cloneCfg(); next.toc = (next.toc || []).filter(x => x.capture !== page);
+  if (await saveCfg(next)) { $("tocInDlg").close(); setStatus("목차를 해제했습니다"); }
+};
+function allTocItems() {  // 쪽 순서대로 이은 목차 항목
+  return (cfg.toc || []).slice().sort((a, b) => a.capture - b.capture).flatMap(t => t.items);
+}
+function fillChapPick() {
+  const items = allTocItems(), row = $("chapPickRow"), sel = $("chapPick");
+  row.hidden = !items.length; if (!items.length) return;
+  sel.innerHTML = '<option value="">(직접 입력)</option>' + items.map((it, i) => '<option value="' + i + '">' + "  ".repeat(it.level) + it.text.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])) + "</option>").join("");
+  sel.value = "";
+}
+$("chapPick").onchange = e => {
+  const items = allTocItems(), i = e.target.value === "" ? -1 : +e.target.value; if (i < 0) return;
+  $("chapTitle").value = items[i].text;
+  for (let k = i - 1; k >= 0; k--) if (items[k].level === items[i].level - 1) { $("chapPart").value = items[k].text; break; }  // 바로 위 단계 항목 = 파트 기본값
+};
+// 본문 글 칸: '-' 목록 줄에서 Tab/Shift+Tab 으로 공백 2칸씩 들여쓰기·내어쓰기 (목록 줄이 아니면 지금처럼)
+ed.addEventListener("keydown", e => {
+  if (e.key !== "Tab" || e.ctrlKey || e.altKey || e.metaKey || ed.readOnly) return;
+  const v = ed.value, [a, b] = lineAt(v, ed.selectionStart), line = v.slice(a, b);
+  if (!/^\s*-\s/.test(line)) return;
+  e.preventDefault();
+  const nl = e.shiftKey ? line.replace(/^ {1,2}/, "") : IND + line, d = nl.length - line.length;
+  setText(v.slice(0, a) + nl + v.slice(b), Math.max(a, ed.selectionStart + d));
+});
 const normT = t => t.replace(/\*+|<\/?u>|<br\s*\/?>|\s+/g, "");
 function tocItems() {  // [{level, text, page}] — 설정의 파트·챕터(##) + 글 속 제목 (챕터 시작 쪽의 챕터명·파트 줄은 머리에 한 번만)
   syncFull();
@@ -1540,7 +1625,7 @@ function tocItems() {  // [{level, text, page}] — 설정의 파트·챕터(##)
   });
   return items.sort((a, b) => a.page - b.page || a.ord - b.ord);
 }
-$("tocBtn").onclick = () => {
+$("outlineBtn").onclick = () => {
   const box = $("tocList"); box.innerHTML = ""; let prev = 0;
   const items = tocItems();
   if (!items.length) box.textContent = "제목이 없습니다";
@@ -1557,7 +1642,7 @@ $("tocBtn").onclick = () => {
 $("tocClose").onclick = () => $("tocDlg").close();
 
 // ---- 시작 --------------------------------------------------------------
-const EDITOR_VERSION = "2026-11-15.1";  // ebook_review.py 의 EDITOR_VERSION 과 같게
+const EDITOR_VERSION = "2026-11-15.2";  // ebook_review.py 의 EDITOR_VERSION 과 같게
 (async function init() {
   try {
     let sv = ""; try { sv = (await api("/api/version")).version; } catch (e) {}
@@ -1571,7 +1656,7 @@ const EDITOR_VERSION = "2026-11-15.1";  // ebook_review.py 의 EDITOR_VERSION �
     await loadSuggestions();
     $("nextLow").textContent = "다음 의심 줄 (" + suspects.length + ")";
     applyZoom();
-    try { cfg = await api("/api/chapters"); } catch (e) { cfg = { chapters: [], page_fixes: [], skip_pages: [] }; }
+    try { cfg = await api("/api/chapters"); } catch (e) { cfg = { chapters: [], page_fixes: [], skip_pages: [], toc: [] }; }
     rebuildCfg();
     try { checkedSet = new Set(await api("/api/checked")); } catch (e) { checkedSet = new Set(); }
     try { srcGrams = grams(sq((await api("/api/source")).md || ""), 5); } catch (e) { srcGrams = null; }

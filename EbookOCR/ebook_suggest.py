@@ -679,9 +679,9 @@ def main(argv=None) -> int:
     except ValueError as e:
         print(f"[주의] {e} — 장 설정은 무시합니다")
         cfg = None
-    skip = bookpages.inactive_pages(cfg, bookpages.count_pages(folder))
+    skip = bookpages.inactive_pages(cfg, bookpages.count_pages(folder)) | bookpages.toc_pages(cfg)  # 목차를 저장한 쪽은 내보낼 때 OCR 글을 안 씀
     if skip:
-        print(f"장 설정: 뺀 쪽·제외한 챕터의 {len(skip)}쪽은 검사하지 않습니다")
+        print(f"장 설정: 뺀 쪽·제외한 챕터·목차 {len(skip)}쪽은 검사하지 않습니다")
     paras = [p for p in read_paragraphs(src.read_bytes().decode("utf-8"), skip) if para_id(p) not in done]
     chunks = chunk(paras, args.chunk_chars)
     n_all = len(chunks)
