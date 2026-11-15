@@ -154,6 +154,46 @@ def ocr_image(ocr, img: np.ndarray, no: int, name: str, args) -> Page:
     return Page(no, name, w, h, group_rows(items), pictures, boxes)
 
 
+REOCR_PAD = 12          # 다시 읽을 영역 둘레에 덧대는 흰 여백 (가장자리 글자가 잘리지 않게)
+REOCR_SMALL = 1000     # 영역의 긴 변이 이보다 짧으면 2배로 키워 읽는다 (그림 속 작은 글씨)
+REOCR_MAX_ASPECT = 8   # 가로:세로가 이보다 길쭉하면 흰 여백으로 비율을 맞춘다 (ocr_paddle.prepare_crop 과 같은 이유)
+
+
+def ocr_region(ocr, img: np.ndarray, box, min_score: float = 0.5) -> tuple[list[Row], list[Row]]:
+    """쪽 이미지에서 영역(box = [x1, y1, x2, y2], 쪽 픽셀 좌표)만 잘라 글자를 새로 읽는다.
+    그림으로 판정돼 글자가 버려진 영역(표 넣기·그림 넣기의 '다시 읽기')에 쓴다. 그림 판정은 하지 않는다.
+    돌려주는 값: (글상자들, 줄들). 좌표는 쪽 픽셀 좌표로 되돌린 것."""
+    import ocr_paddle as op
+    from PIL import Image
+
+    h, w = img.shape[:2]
+    x1, x2 = sorted(int(round(max(0, min(w, v)))) for v in (box[0], box[2]))
+    y1, y2 = sorted(int(round(max(0, min(h, v)))) for v in (box[1], box[3]))
+    if x2 - x1 < 8 or y2 - y1 < 8:
+        raise ValueError("영역이 너무 작습니다")
+    crop = np.ascontiguousarray(img[y1:y2, x1:x2])
+    k = 2 if max(crop.shape[:2]) < REOCR_SMALL else 1
+    if k > 1:
+        crop = np.asarray(Image.fromarray(crop).resize((crop.shape[1] * k, crop.shape[0] * k), Image.LANCZOS))
+    ch, cw = crop.shape[:2]
+    padx = pady = REOCR_PAD
+    if cw > REOCR_MAX_ASPECT * ch:
+        pady = max(pady, (cw // REOCR_MAX_ASPECT - ch) // 2 + 1)
+    elif ch > REOCR_MAX_ASPECT * cw:
+        padx = max(padx, (ch // REOCR_MAX_ASPECT - cw) // 2 + 1)
+    canvas = np.full((ch + 2 * pady, cw + 2 * padx) + crop.shape[2:], 255, dtype=crop.dtype)
+    canvas[pady:pady + ch, padx:padx + cw] = crop
+    results = ocr.predict(canvas)
+    res = results[0] if results else None
+    items = op.to_items(res, min_score) if res is not None else []
+    for it in items:  # 덧댄 여백·확대를 빼고 쪽 좌표로
+        bx = it.box
+        it.box = [int(round(x1 + (bx[0] - padx) / k)), int(round(y1 + (bx[1] - pady) / k)),
+                  int(round(x1 + (bx[2] - padx) / k)), int(round(y1 + (bx[3] - pady) / k))]
+    boxes = [Row(it.text.strip(), list(it.box), float(it.score)) for it in items if it.text.strip()]
+    return boxes, group_rows(items)
+
+
 def page_to_json(p: Page) -> dict:
     d = asdict(p)
     d["version"] = CACHE_VERSION

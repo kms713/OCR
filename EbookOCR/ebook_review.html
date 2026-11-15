@@ -120,6 +120,9 @@
   #tblPreview th, #tblPreview td { border:1px solid var(--line); padding:3px 6px; vertical-align:top; text-align:left; }
   #tblPreview th { background:var(--bg); }
   #tblText { font:13px/1.5 ui-monospace, Consolas, monospace; min-height:120px; white-space:pre; }
+  .reocr { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:6px; font-size:13px; }
+  #figReocrInfo, #tblReocrInfo { color:var(--muted); }
+  #figOcr { width:100%; box-sizing:border-box; min-height:90px; margin-top:6px; font-size:13px; line-height:1.6; }
   #tblDlg .opt { display:flex; flex-wrap:wrap; gap:8px; align-items:center; color:var(--muted); font-size:13px; }
   .legend i { font-style:normal; padding:0 4px; border-radius:3px; }
   #mirror { position:absolute; visibility:hidden; white-space:pre-wrap; overflow-wrap:break-word; padding:12px 14px; border:0;
@@ -234,6 +237,11 @@
   <textarea id="figAlt" placeholder="예: 3단계 학습 과정을 보여주는 순서도. 입력 → 처리 → 출력 순으로 화살표가 이어진다."></textarea>
   <div style="color:var(--muted);font-size:12px">비워 두면 &quot;설명 없음&quot;으로 표시되고, 내보낼 때 알려 드립니다.</div>
   <label style="display:block;margin-top:6px;font-size:13px"><input type="checkbox" id="figClean" checked> <span id="figCleanInfo">그림 안에 있던 글(화면 캡처 속 글씨 등)을 이 쪽 본문에서 지우기</span></label>
+  <div class="reocr"><button id="figReocr" title="OCR 이 그림으로 판정해 글자를 버린 영역이면, 이 영역만 잘라 글자를 새로 읽습니다 (OCR 엔진이 설치된 PC 에서만)">이 영역 글자 다시 읽기</button><span id="figReocrInfo"></span></div>
+  <div id="figOcrBox" hidden>
+    <textarea id="figOcr" spellcheck="false" title="다시 읽은 글 (한 줄이 이미지의 한 줄). 고친 뒤 아래 버튼으로 넣습니다"></textarea>
+    <div class="reocr"><button id="figOcrAlt" title="다시 읽은 글을 그림 설명 칸 끝에 붙입니다">설명에 붙이기</button><button id="figOcrText" title="그림은 넣지 않고, 다시 읽은 글을 커서가 있는 문단 아래에 본문으로 넣습니다">그림 대신 본문 글로 넣기</button></div>
+  </div>
   <div class="row"><button id="figCancel">취소</button><button id="figOk" class="on">넣기</button></div>
 </dialog>
 
@@ -243,6 +251,7 @@
     <select id="tblGap"><option value="0.15">촘촘하게 (행을 많이 나눔)</option><option value="0.5" selected>보통</option><option value="1.0">넓게 (행을 적게 나눔)</option></select>
     <label><input type="checkbox" id="tblHead" checked> 첫 행은 머리 행</label>
     <label title="한 칸 안에 여러 줄이 있으면 &lt;br&gt; 로 줄을 나눔. 끄면 빈칸으로 이어 붙임 (좁은 칸에서 긴 문장이 꺾인 경우)"><input type="checkbox" id="tblBr"> 칸 안 줄바꿈 살리기 (&lt;br&gt;)</label>
+    <button id="tblReocr" title="이 영역만 잘라 글자를 새로 읽어 표 초안을 다시 만듭니다. 고른 영역에 OCR 글이 없으면(그림으로 판정돼 글자가 버려진 영역) 창을 열 때 저절로 합니다 (OCR 엔진이 설치된 PC 에서만)">이 영역 글자 다시 읽기</button>
     <span id="tblInfo"></span></div>
   <div id="tblPreview"></div>
   <textarea id="tblText" spellcheck="false"></textarea>
@@ -620,8 +629,35 @@ function openFigDialog() {
   const nIn = segsInBox(page, pendingBox).length;
   $("figClean").disabled = !nIn; $("figClean").checked = nIn > 0;
   $("figCleanInfo").textContent = nIn ? "그림 안에 있던 글 " + nIn + "개(화면 캡처 속 글씨 등)를 이 쪽 본문에서 지우기" : "그림 안에서 OCR 이 읽은 글이 없습니다";
+  $("figOcrBox").hidden = true; $("figOcr").value = ""; $("figReocr").disabled = false;
+  $("figReocrInfo").textContent = nIn ? "" : "그림으로 판정돼 글자가 버려진 영역이면 다시 읽을 수 있습니다";
   $("figDlg").showModal(); $("figAlt").focus();
 }
+async function reocrBox(no, box) {  // 영역만 잘라 글자를 새로 읽기 → {boxes, rows} (쪽 좌표). 처음에는 엔진 준비로 오래 걸림
+  return await api("/api/reocr", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ page: no, box }) });
+}
+$("figReocr").onclick = async () => {
+  if (!pendingBox) return;
+  const box = pendingBox, no = page;
+  $("figReocr").disabled = true; $("figReocrInfo").textContent = "다시 읽는 중… (처음 한 번은 엔진 준비로 수십 초 걸릴 수 있음)";
+  try {
+    const res = await reocrBox(no, box);
+    if (pendingBox !== box) return;  // 그사이 창을 닫았음
+    $("figOcr").value = res.rows.map(r => r.text).join("\n");
+    $("figOcrBox").hidden = !res.rows.length;
+    $("figReocrInfo").textContent = res.rows.length ? "다시 읽은 글 " + res.rows.length + "줄 — 고친 뒤 아래 버튼으로 넣으세요" : "이 영역에서 글자를 찾지 못했습니다";
+  } catch (e) { $("figReocrInfo").textContent = "다시 읽기 실패: " + e.message; }
+  finally { $("figReocr").disabled = false; }
+};
+$("figOcrAlt").onclick = () => {
+  const t = $("figOcr").value.replace(/\s+/g, " ").trim(); if (!t) return;
+  $("figAlt").value = ($("figAlt").value.trim() ? $("figAlt").value.trim() + " " : "") + t; $("figAlt").focus();
+};
+$("figOcrText").onclick = () => {
+  const t = $("figOcr").value.split("\n").map(l => l.trim()).filter(Boolean).join("\n\n"); if (!t) return;
+  $("figDlg").close(); sel.hidden = true; pendingBox = null;
+  insertAtCaret("\n\n" + t + "\n\n"); setStatus("다시 읽은 글을 본문에 넣었습니다 (그림은 넣지 않음, Ctrl+Z 로 되돌리기)");
+};
 $("figCancel").onclick = () => { $("figDlg").close(); sel.hidden = true; pendingBox = null; };
 function segsInBox(no, box) {  // 이 쪽에서 영역 안에 중심이 있는 글상자(없으면 줄) 글
   const d = rowsData[no] || {}, src = (d.boxes && d.boxes.length) ? d.boxes : (d.rows || []);
@@ -771,7 +807,7 @@ $("contToggle").onclick = () => {  // 쪽 표시 줄의 '이어짐'을 켜고 �
 
 // ---- 표 넣기 ----------------------------------------------------------------
 // 고른 영역 안 글상자(boxes)를 가로로 겹치는 것끼리 열로, 세로로 가까운 것끼리 행으로 묶어 마크다운 표 초안을 만든다
-let tblBox = null, tblDel = [];
+let tblBox = null, tblDel = [], tblRead = null;  // tblRead: 이 영역을 다시 읽은 글상자 (없으면 OCR 결과를 씀)
 const sq = t => t.replace(/[\s*⁠]|<\/?u>/g, "");
 function tableSegs(box) {
   const d = rowsData[page] || {};
@@ -819,7 +855,7 @@ function renderTablePreview() {
   $("tblInfo").textContent = rows.length ? rows.length + "행 × " + Math.max(...rows.map(r => r.length)) + "열" : "";
 }
 function tableDraft() {
-  const segs = tableSegs(tblBox), md = buildTable(segs, +$("tblGap").value, $("tblBr").checked);
+  const segs = tblRead || tableSegs(tblBox), md = buildTable(segs, +$("tblGap").value, $("tblBr").checked);
   $("tblText").value = $("tblHead").checked ? md : md.split("\n").filter((l, i) => i !== 1).join("\n");
   // 본문에 한 줄로 들어가 있던 표 글 찾기: 문단 글자의 80% 이상이 표 칸 글이면 표 글로 봄
   const keys = segs.map(s => sq(s.text)).filter(k => k.length >= 2);
@@ -834,10 +870,25 @@ function tableDraft() {
   $("tblRemoveInfo").textContent = tblDel.length ? "본문에 줄글로 들어가 있던 표 글 " + tblDel.length + "문단을 지우고 그 자리에 표를 넣기"
     : "본문에서 같은 글을 찾지 못했습니다 (표는 커서가 있는 문단 아래에 넣고, 줄글은 직접 지우세요)";
   renderTablePreview();
-  if (!segs.length) $("tblInfo").textContent = "고른 영역에 글이 없습니다";
+  if (!segs.length) $("tblInfo").textContent = tblRead ? "다시 읽어도 이 영역에서 글자를 찾지 못했습니다" : "고른 영역에 글이 없습니다";
+  else if (tblRead) $("tblInfo").textContent += " · 이 영역을 다시 읽은 글 " + segs.length + "개로 만들었습니다";
   else if (!(rowsData[page].boxes || []).length) $("tblInfo").textContent += " · 이 책은 칸 정보가 없어 줄 단위로 나눴습니다 (3_OCR 를 다시 실행하면 칸별로 나눔)";
 }
-function openTableDialog(box) { tblBox = box; tableDraft(); $("tblDlg").showModal(); $("tblText").focus(); }
+function openTableDialog(box) {
+  tblBox = box; tblRead = null; tableDraft(); $("tblDlg").showModal(); $("tblText").focus();
+  if (!tableSegs(box).length) tblReocr();  // 글이 없는 영역(그림으로 판정돼 글자가 버려진 곳): 이 영역만 다시 읽어 초안
+}
+async function tblReocr() {
+  const box = tblBox, no = page;
+  $("tblReocr").disabled = true; $("tblInfo").textContent = "이 영역 글자를 다시 읽는 중… (처음 한 번은 엔진 준비로 수십 초 걸릴 수 있음)";
+  try {
+    const res = await reocrBox(no, box);
+    if (tblBox !== box || !$("tblDlg").open) return;  // 그사이 창을 닫았음
+    tblRead = res.boxes; tableDraft();
+  } catch (e) { if (tblBox === box) $("tblInfo").textContent = "다시 읽기 실패: " + e.message; }
+  finally { $("tblReocr").disabled = false; }
+}
+$("tblReocr").onclick = tblReocr;
 $("tblGap").onchange = tableDraft;
 $("tblHead").onchange = tableDraft;
 $("tblBr").onchange = tableDraft;
@@ -1701,7 +1752,7 @@ window.addEventListener("keydown", e => {
 });
 
 // ---- 시작 --------------------------------------------------------------
-const EDITOR_VERSION = "2026-11-15.3";  // ebook_review.py 의 EDITOR_VERSION 과 같게
+const EDITOR_VERSION = "2026-11-15.4";  // ebook_review.py 의 EDITOR_VERSION 과 같게
 (async function init() {
   try {
     let sv = ""; try { sv = (await api("/api/version")).version; } catch (e) {}

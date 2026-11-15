@@ -40,7 +40,7 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}  # ebook_ocr.py 와 같�
 LOW_SCORE = 0.8  # 이 신뢰도 미만 줄은 '의심 줄'
 MAX_BODY = 20 * 1024 * 1024
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
-EDITOR_VERSION = "2026-11-15.3"  # ebook_review.html 의 EDITOR_VERSION 과 같게 (업데이트 뒤 편집기를 다시 켰는지 확인용)
+EDITOR_VERSION = "2026-11-15.4"  # ebook_review.html 의 EDITOR_VERSION 과 같게 (업데이트 뒤 편집기를 다시 켰는지 확인용)
 
 FIG_LINK = re.compile(r"!\[([^\]\n]*)\]\((figures/[^)\s]+)\)")
 
@@ -222,6 +222,38 @@ class Book:
             tmp.replace(self.suggest)
 
     # -- 그림 오려내기 ----------------------------------------------------
+    # -- 영역 다시 읽기 (그림으로 판정돼 글자가 버려진 영역) -----------------------------
+    _ocr = None
+    _ocr_lock = threading.Lock()
+
+    def ocr_engine(self):
+        """OCR 엔진은 처음 '다시 읽기' 때 한 번만 준비한다 (편집기 시작은 느려지지 않게). 없으면 안내 오류."""
+        if self._ocr is None:
+            try:
+                import ebook_ocr  # noqa: F401  (ocr_paddle.py 경로 준비)
+                import ocr_paddle as op
+                Book._ocr = op.build_ocr(op.default_options())
+            except ImportError as e:
+                raise RuntimeError("이 PC에는 OCR 엔진이 설치되어 있지 않습니다. 설치.bat 로 전체 설치한 PC에서 "
+                                   f"교정 편집기를 열어 다시 읽으세요. ({e.name or e})") from e
+        return self._ocr
+
+    def reocr(self, no: int, box: list[float]) -> dict:
+        """쪽 no 의 영역 box(쪽 픽셀 좌표)만 잘라 글자를 새로 읽는다. 결과는 저장하지 않고 화면에 돌려준다."""
+        from PIL import Image
+        import numpy as np
+        import ebook_ocr
+
+        f = self.page_file(no)
+        if f is None:
+            raise ValueError("없는 쪽입니다")
+        img = Image.open(io.BytesIO(f.read_bytes()))
+        img = np.ascontiguousarray(np.asarray(img.convert("RGB"))[:, :, ::-1])  # 엔진은 BGR (cv2 와 같게)
+        with self._ocr_lock:  # 엔진은 한 번에 하나씩
+            boxes, rows = ebook_ocr.ocr_region(self.ocr_engine(), img, box)
+        return {"boxes": [{"text": b.text, "box": b.box, "score": b.score} for b in boxes],
+                "rows": [{"text": r.text, "box": r.box, "score": r.score} for r in rows]}
+
     def crop(self, no: int, box: list[float]) -> str:
         from PIL import Image
 
@@ -358,6 +390,12 @@ def make_handler(book: Book):
                     req = json.loads(self._body().decode("utf-8"))
                     rel = book.crop(int(req["page"]), [float(v) for v in req["box"]])
                     return self._json({"path": rel})
+                if urlparse(self.path).path == "/api/reocr":  # 영역만 잘라 글자 다시 읽기
+                    req = json.loads(self._body().decode("utf-8"))
+                    try:
+                        return self._json(book.reocr(int(req["page"]), [float(v) for v in req["box"]]))
+                    except RuntimeError as e:
+                        return self._json({"error": str(e)}, 503)
                 if urlparse(self.path).path == "/api/exclude":
                     req = json.loads(self._body().decode("utf-8"))
                     return self._json({"count": book.add_exclude(req)})
