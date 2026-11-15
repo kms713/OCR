@@ -61,7 +61,6 @@ def continuations(folder: Path, out_dir: Path) -> list[tuple[int, str]]:
         pages.append(eo.page_from_json(json.loads(cf.read_bytes().decode("utf-8"))))
     eo.drop_screenshots(pages)
     eo.apply_exclusions(pages, out_dir, folder.name)
-    eo.strip_headers(pages, 0.1)  # ebook_ocr 기본값과 같게
     paras = eo.build_paragraphs(pages, merge=False)
     return [(x.page, x.text) for x in paras if x.cont]
 

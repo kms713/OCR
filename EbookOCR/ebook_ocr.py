@@ -9,7 +9,8 @@ ebook_capture.py 로 찍은 page_0001.png ... 폴더를 읽어 본문 글자만 
 처리 방식
     1) 그림·사진 제외: 글자 영역을 지운 뒤에도 '큰 덩어리'로 남는 부분을 그림으로 보고,
        그 안에서 읽힌 글자(그림 속 글씨·잡음)는 버립니다.
-    2) 머리말·꼬리말·쪽 번호 제거: 위·아래 가장자리에서 여러 쪽에 반복되는 줄과 숫자뿐인 줄을 뺍니다.
+    2) 머리말·꼬리말·쪽 번호는 자동으로 지우지 않습니다 (본문 줄을 잘못 지우는 일이 있어 2026-11-15 에 뺌).
+       교정 편집기의 '머리말·꼬리말 정리'나 '영역 지우기'로 직접 지웁니다.
     3) 문단 복원: 화면 폭 때문에 생긴 줄바꿈을 이어 붙이고, 들여쓰기·줄 간격·문장 끝으로 문단을 나눕니다.
        쪽이 바뀌며 끊긴 문장도 이어 붙입니다. 마지막에 한국어 띄어쓰기를 교정합니다 (Kiwi). 본문보다 큰 글자 줄은 제목(##)으로 표시합니다.
        본문보다 작은 글자 줄은 각주로 보고 '> 주:' 로 따로 적어 본문 문장이 끊기지 않게 합니다.
@@ -53,12 +54,6 @@ CACHE_VERSION = 1
 
 # 문장이 끝났다고 볼 끝 글자
 SENTENCE_END = re.compile(r"[.?!…。」』\"”’')\]>:;]$")
-# 쪽 번호가 붙은 짧은 머리말·꼬리말: "4 | 프롤로그", "1장 시작하며 23"
-FOOTER = re.compile(r"^\d{1,4}\s*[|│ㅣ·\-–—]?\s*\S.{0,40}$|^.{0,40}\S\s*[|│ㅣ·\-–—]?\s*\d{1,4}$")
-# 각주 표시 기호만 있는 줄
-NOTE_MARK = re.compile(r"^[\s•·∙●*※†‡]+$")
-# 숫자뿐인 줄 (쪽 번호·진행률): 12 / - 12 - / 12 / 300 / 12쪽 / 37%
-PAGE_NO = re.compile(r"^[\s\-–—·|]*(p\.?\s*)?\d{1,4}(\s*(/|of)\s*\d{1,4})?\s*(쪽|페이지|%)?[\s\-–—·|]*$", re.I)
 
 
 # ----------------------------------------------------------------------------
@@ -206,12 +201,8 @@ def page_from_json(d: dict) -> Page:
 
 
 # ----------------------------------------------------------------------------
-# 2) 머리말·꼬리말 제거
+# 2) 화면 캡처 속 글·제외 영역 빼기 (머리말·꼬리말 자동 제거는 2026-11-15 에 뺌)
 # ----------------------------------------------------------------------------
-def _norm_key(text: str) -> str:
-    return re.sub(r"\s+", "", re.sub(r"\d+", "#", text))
-
-
 def drop_screenshots(pages: list[Page], found: dict | None = None) -> int:
     """책 속 화면 캡처(검색 결과 화면 등) 글 빼기: 본문보다 아주 작은 글자(본문 높이 0.6배 미만)가 한곳에 빽빽하게
     모인 곳(8개 이상, 세로 4줄·가로 6줄 이상 크기)을 그림으로 보고, 그 안의 글상자를 모두 뺀 뒤 줄을 다시 묶는다.
@@ -275,51 +266,6 @@ def apply_exclusions(pages: list[Page], out_dir: Path, title: str) -> int:
         p.rows = keep
         p.boxes = [b for b in p.boxes if not inside(b.box)]
     return n
-
-
-def strip_headers(pages: list[Page], band: float) -> None:
-    """머리말·꼬리말·쪽 번호를 뺀다. 가장자리 줄 = 이미지 위·아래 band 비율 안의 줄, 또는 글이 있는 영역의 맨 위·맨 아래 두 줄
-    (캡처에 여백이 있어 꼬리말이 이미지 가장자리에서 떨어져 있는 책). 가장자리 줄 중
-      · 숫자뿐인 줄(쪽 번호), 여러 쪽에 반복되는 줄(숫자는 무시하고 비교: '블로그 부업 131' / '… 133')은 뺀다.
-      · 쪽 번호가 붙은 짧은 줄('130 CHAPTER 3', '블로그 투잡/부업을 해야 하는 이유 43')은 제목 크기가 아니고 본문과 떨어져 있을 때만 뺀다
-        (쪽 맨 위 '2 블로그 시작하기' 같은 번호 붙은 제목을 지우지 않게)."""
-    hs = [r.h for p in pages for r in p.rows]
-    lh = float(np.median(hs)) if hs else 20.0
-
-    def edges(p: Page) -> dict[int, float]:
-        """가장자리 줄 → 본문과의 간격 (id(row) → gap)."""
-        rows = sorted(p.rows, key=lambda r: r.box[1])
-        out: dict[int, float] = {}
-        for i, r in enumerate(rows):
-            in_band = r.box[3] <= p.height * band or r.box[1] >= p.height * (1 - band)
-            top = i < 2 and len(rows) >= 4
-            bottom = i >= len(rows) - 2 and len(rows) >= 4
-            if not (in_band or top or bottom):
-                continue
-            gap_up = r.box[1] - rows[i - 1].box[3] if i > 0 else 1e9
-            gap_down = rows[i + 1].box[1] - r.box[3] if i + 1 < len(rows) else 1e9
-            out[id(r)] = (1e9 if in_band else (gap_down if top and not bottom else gap_up if bottom and not top else max(gap_up, gap_down)))
-        return out
-
-    edge_of = {p.no: edges(p) for p in pages}
-    counts: dict[str, int] = {}
-    for p in pages:
-        for k in {_norm_key(r.text) for r in p.rows if id(r) in edge_of[p.no]}:
-            counts[k] = counts.get(k, 0) + 1
-    limit = max(3, int(0.2 * len(pages)))
-    repeated = {k for k, c in counts.items() if c >= limit and len(k) >= 2}
-
-    def drop(p: Page, r: Row) -> bool:
-        gap = edge_of[p.no].get(id(r))
-        if gap is None:
-            return False
-        if PAGE_NO.match(r.text) or _norm_key(r.text) in repeated:
-            return True
-        # 제목(본문 높이 1.3배 초과, 문단 복원과 같은 기준)이 아니고 본문과 떨어져 있으면 꼬리말로 본다
-        return bool(FOOTER.match(r.text)) and r.h <= 1.3 * lh and gap >= 1.2 * lh
-
-    for p in pages:
-        p.rows = [r for r in p.rows if not drop(p, r)]
 
 
 # ----------------------------------------------------------------------------
@@ -558,9 +504,9 @@ def parse_args(argv=None):
     ap.add_argument("--keep-pictures", action="store_true", help="그림 판정을 끄고 모든 글자 유지")
     ap.add_argument("--picture-fill", type=float, default=0.12,
                     help="그림 판정 채움 비율 (기본 0.12, 낮출수록 선 그림까지 그림으로 봄)")
-    ap.add_argument("--header-band", type=float, default=0.1,
-                    help="머리말·꼬리말로 볼 위·아래 가장자리 비율 (기본 0.1)")
-    ap.add_argument("--keep-headers", action="store_true", help="머리말·꼬리말·쪽 번호 제거 끄기")
+    # 예전 명령줄 호환용 (머리말·꼬리말 자동 제거를 뺀 뒤로는 아무 일도 하지 않음)
+    ap.add_argument("--header-band", type=float, default=0.1, help=argparse.SUPPRESS)
+    ap.add_argument("--keep-headers", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--keep-screenshots", action="store_true", help="책 속 화면 캡처의 작은 글 빼기 끄기")
     ap.add_argument("--min-score", type=float, default=0.5, help="이 신뢰도 미만 글상자는 버림 (기본 0.5)")
     ap.add_argument("--redo", action="store_true", help="캐시를 무시하고 모든 쪽을 다시 인식")
@@ -647,8 +593,6 @@ def main(argv=None) -> int:
     n_ex = apply_exclusions(pages, out_dir, title)
     if n_ex:
         print(f"제외 영역(편집기 '영역 지우기')의 줄 {n_ex}개를 뺐습니다.")
-    if not args.keep_headers:
-        strip_headers(pages, args.header_band)
     paras = build_paragraphs(pages)
     if not args.no_spacing:
         fix_spacing(paras)
