@@ -34,7 +34,7 @@ def main() -> int:
         cfg = json.loads((root / "책_OCR" / "책_장설정.json").read_text(encoding="utf-8"))
         ok = len(cfg["chapters"]) == 2 and cfg["skip_pages"] == [7] and cfg["page_fixes"] == [{"capture": 9, "page": 8}]
         md = (root / "책_OCR" / "책_교정.md").read_text(encoding="utf-8")
-        ok2 = "<!-- p.9 -->" in md and "<!-- p.8 -->" in md and "## 대주제B" in md and "…끝난다.\n\n## 대주제B\n\n첫 문장…" in md
+        ok2 = "<!-- p.9 -->" in md and "<!-- p.8 -->" in md and "…끝난다.\n\n### 2-1 설치\n\n첫 문장…" in md
         print(("  통과 " if ok else "  실패 ") + "설정 파일 저장", "" if ok else cfg)
         print(("  통과 " if ok2 else "  실패 ") + "교정 글에 쪽 번호 그대로, 제목 떼기 저장")
         return 0 if ok and ok2 else 1

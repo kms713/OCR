@@ -8,12 +8,12 @@
 
 설정 파일 예
     {
-      "chapters":   [{"capture": 311, "page": 291, "title": "3장 에이전트 설계", "split": "chapter", "exclude": false}],
+      "chapters":   [{"capture": 311, "page": 291, "title": "3장 에이전트 설계", "part": "Part 2. 설계의 기술", "split": "chapter", "exclude": false}],
       "page_fixes": [{"capture": 340, "page": 321}],
       "skip_pages": [312]
     }
 
-  chapters    챕터 시작 쪽. capture = 캡처 쪽 번호, page = 그 쪽의 책 쪽 번호,
+  chapters    챕터 시작 쪽. capture = 캡처 쪽 번호, page = 그 쪽의 책 쪽 번호, title = 챕터명(내보낼 때 ## 줄), part = 파트(선택),
               split = "chapter"(챕터만) | "topic"(대주제까지 나눔), exclude = 이 챕터 전체를 내보내기·교정에서 뺌
   page_fixes  쪽 번호 교정. 그 캡처 쪽부터 다음 설정이 나올 때까지 이 책 쪽 번호에서 이어집니다
   skip_pages  이 쪽 빼기. 그 쪽의 글만 내보내기에서 빼고, 쪽 번호는 그대로 차지합니다
@@ -65,7 +65,8 @@ def clean_config(d) -> dict:
         if split not in SPLITS:
             raise ValueError(f"캡처 {cap}쪽 나누기 값이 잘못됐습니다: {split!r}")
         chapters[cap] = {"capture": cap, "page": _int(c.get("page"), f"캡처 {cap}쪽 책 쪽 번호"),
-                         "title": title, "split": split, "exclude": bool(c.get("exclude", False))}
+                         "title": title, "part": str(c.get("part", "") or "").strip(), "split": split,
+                         "exclude": bool(c.get("exclude", False))}
     fixes: dict[int, dict] = {}
     for f in d.get("page_fixes", []) or []:
         cap = _int(f.get("capture"), "쪽 번호 교정 캡처 쪽")

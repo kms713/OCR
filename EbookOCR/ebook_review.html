@@ -193,7 +193,7 @@
       <button id="previewBtn" title="이 쪽을 완성본처럼 꾸며 보기 (다시 누르면 고치기로)">미리보기</button>
       <span id="missInfo" title="원래 OCR 글에 있던 줄 중 지금 글에서 찾을 수 없는 줄 (실수로 지웠는지 확인). 이미지에 주황 점선으로 표시"></span>
       <span class="legend">이 쪽 글만 보입니다 ·
-        <i style="color:var(--md-h0)"># 챕터</i><i style="color:var(--md-h)">## 대</i><i style="color:var(--md-h2)">### 중</i><i style="color:var(--md-h3)">#### 소</i><i style="color:var(--md-h4)">##### 소소</i><i style="color:var(--md-quote)">&gt; 주</i><i style="color:var(--md-img)">![그림]</i><i style="color:var(--md-h2)">| 표 |</i><i style="background:var(--md-q)">[?]</i><i style="background:rgba(47,111,237,.18)">▸● 각주 후보</i><i style="background:var(--md-sug)">AI 제안 있음</i></span>
+        <i style="color:var(--md-h0)">## 챕터</i><i style="color:var(--md-h)">###</i><i style="color:var(--md-h2)">####</i><i style="color:var(--md-h3)">#####</i><i style="color:var(--md-h4)">######</i><i style="color:var(--md-quote)">&gt; 주</i><i style="color:var(--md-img)">![그림]</i><i style="color:var(--md-h2)">| 표 |</i><i style="background:var(--md-q)">[?]</i><i style="background:rgba(47,111,237,.18)">▸● 각주 후보</i><i style="background:var(--md-sug)">AI 제안 있음</i></span>
       <span class="grow"></span>
       <input id="findText" type="text" placeholder="찾기" size="10"><input id="replText" type="text" placeholder="바꿀 글" size="10">
       <button id="findNext">찾기</button><button id="replAll" title="책 전체에서 바꿀 곳을 목록으로 보고 골라서 바꾸기">바꾸기…</button>
@@ -203,11 +203,10 @@
       <button id="fI" title="기울임 (Ctrl+I)"><i>기울임</i></button>
       <button id="fU" title="밑줄 (Ctrl+U)"><u>밑줄</u></button>
       <span class="sep"></span>
-      <button id="fH0" title="고른 글을 새 줄로 떼어 챕터(#)로. 고르지 않으면 커서 줄 전체">챕터</button>
-      <button id="fH1" title="고른 글을 새 줄로 떼어 대주제(##)로. 고르지 않으면 커서 줄 전체">대주제</button>
-      <button id="fH2" title="고른 글을 새 줄로 떼어 중주제(###)로">중주제</button>
-      <button id="fH3" title="고른 글을 새 줄로 떼어 소주제(####)로">소주제</button>
-      <button id="fH4" title="고른 글을 새 줄로 떼어 소소주제(#####)로">소소주제</button>
+      <button id="fH1" title="고른 글을 새 줄로 떼어 ### (챕터 바로 아래 단계, 예: 1-1)로. 고르지 않으면 커서 줄 전체. '대주제까지 나누기'의 기준">###</button>
+      <button id="fH2" title="고른 글을 새 줄로 떼어 #### (그 아래, 예: 1-1-1)로. 고르지 않으면 커서 줄 전체">####</button>
+      <button id="fH3" title="고른 글을 새 줄로 떼어 ##### 로. 고르지 않으면 커서 줄 전체">#####</button>
+      <button id="fH4" title="고른 글을 새 줄로 떼어 ###### 로 (필요할 때만). 고르지 않으면 커서 줄 전체">######</button>
       <button id="fP" title="커서가 있는 줄을 본문으로 (제목·주 표시 지움)">본문</button>
       <span class="sep"></span>
       <button id="fNote" title="고른 글을 본문에서 빼서 그 문단 아래 '> 주:'로 옮김. 고르지 않으면 커서 줄을 주로 바꿈 (Alt+N)">각주</button>
@@ -292,7 +291,8 @@
 <dialog id="chapDlg">
   <h2 id="chapH">챕터 시작</h2>
   <div style="color:var(--muted);font-size:12px;margin-bottom:6px" id="chapInfo"></div>
-  <label style="display:block;margin:6px 0">챕터 제목 (필수)<br><input id="chapTitle" type="text" style="width:100%"></label>
+  <label style="display:block;margin:6px 0">챕터명 (필수) — 내보낼 때 ## 줄이 됩니다<br><input id="chapTitle" type="text" style="width:100%"></label>
+  <label style="display:block;margin:6px 0">파트 (선택, 예: Part 1. 도구의 이해) — 파트가 있는 책만<br><input id="chapPart" type="text" style="width:100%"></label>
   <label style="display:block;margin:6px 0">이 쪽의 책 쪽 번호 (필수, 정수)<br><input id="chapPage" type="number" step="1" style="width:120px"></label>
   <label style="display:block;margin:6px 0">나누기
     <select id="chapSplit"><option value="chapter">챕터만</option><option value="topic">대주제까지</option></select></label>
@@ -427,7 +427,7 @@ function hlInline(t, fmt) {  // 서식 표시는 흐리게, 안의 글은 서식
 }
 function hlLine(line) {
   let m, out;
-  if ((m = /^(#{1,6})(\s.*|)$/.exec(line))) out = '<span class="m-mk">' + m[1] + '</span><span class="' + ["m-h0", "m-h", "m-h2", "m-h3", "m-h4", "m-h4"][m[1].length - 1] + '">' + hlInline(m[2]) + "</span>";
+  if ((m = /^(#{1,6})(\s.*|)$/.exec(line))) out = '<span class="m-mk">' + m[1] + '</span><span class="' + ["m-h0", "m-h0", "m-h", "m-h2", "m-h3", "m-h4"][m[1].length - 1] + '">' + hlInline(m[2]) + "</span>";
   else if ((m = /^(>\s?)(.*)$/.exec(line))) out = '<span class="m-quote"><span class="m-mk">' + escH(m[1]) + "</span>" + hlInline(m[2]) + "</span>";
   else if ((m = /^(\s*)([-*+]|\d+[.)])(\s.*)$/.exec(line))) out = escH(m[1]) + '<span class="m-mk">' + escH(m[2]) + "</span>" + hlInline(m[3]);
   else if (/^\s*(\*{3,}|-{3,}|_{3,})\s*$/.test(line)) out = '<span class="m-mk">' + escH(line) + "</span>";
@@ -728,11 +728,10 @@ function makeHeading(prefix) {  // 고른 글이 있으면 그 글만 제목으�
   const [nv, k, n] = splitHeading(ed.value, a, b, prefix);
   setText(nv, k + n); setStatus("고른 글을 제목으로 떼었습니다");
 }
-$("fH0").onclick = () => makeHeading("# ");
-$("fH1").onclick = () => makeHeading("## ");
-$("fH2").onclick = () => makeHeading("### ");
-$("fH3").onclick = () => makeHeading("#### ");
-$("fH4").onclick = () => makeHeading("##### ");
+$("fH1").onclick = () => makeHeading("### ");
+$("fH2").onclick = () => makeHeading("#### ");
+$("fH3").onclick = () => makeHeading("##### ");
+$("fH4").onclick = () => makeHeading("###### ");
 $("fP").onclick = () => setLinePrefix("");
 $("fNote").onclick = makeNote;
 $("fUp").onclick = () => moveBlock(-1);
@@ -1437,7 +1436,7 @@ const chapOf = c => cfg.chapters.find(x => x.capture === c);
 const fixOf = c => cfg.page_fixes.find(x => x.capture === c);
 function pageFlags(c) {
   const f = [], ch = chapOf(c);
-  if (ch) f.push("챕터 시작: " + ch.title + (ch.split === "topic" ? " (대주제까지 나눔)" : "") + (ch.exclude ? " — 제외" : ""));
+  if (ch) f.push("챕터 시작: " + ch.title + (ch.part ? " [" + ch.part + "]" : "") + (ch.split === "topic" ? " (### 에서도 나눔)" : "") + (ch.exclude ? " — 제외" : ""));
   if (fixOf(c)) f.push("쪽 번호 교정");
   if (skipSet.has(c)) f.push("뺀 쪽"); else if (exclSet.has(c)) f.push("제외한 챕터");
   return f;
@@ -1464,20 +1463,22 @@ function openChapDlg() {
   const ch = chapOf(page);
   $("chapH").textContent = "챕터 시작 — " + pn(page);
   $("chapTitle").value = ch ? ch.title : "";
+  const prev = cfg.chapters.filter(x => x.capture < page).sort((p, q) => q.capture - p.capture)[0];  // 같은 파트의 챕터는 앞 챕터의 값을 기본으로
+  $("chapPart").value = ch ? (ch.part || "") : (prev ? prev.part || "" : "");
   $("chapPage").value = ch ? ch.page : (bookNo(page) !== null ? bookNo(page) : "");
   $("chapSplit").value = ch ? ch.split : "chapter"; $("chapExcl").checked = ch ? ch.exclude : false;
   $("chapDel").hidden = !ch; $("chapErr").textContent = "";
-  $("chapInfo").textContent = "글이 없는 쪽에서도 됩니다. 챕터 제목은 내보낼 때 이 쪽 맨 위에 나옵니다 (이 쪽 글에 같은 제목 줄(#~##)이 있으면 한 번만 씀).";
+  $("chapInfo").textContent = "글이 없는 쪽에서도 됩니다. 챕터명·파트는 내보낸 파일 머리에 나옵니다 (이 쪽 글에 같은 줄이 있으면 한 번만 씀).";
   $("chapDlg").showModal(); $("chapTitle").focus();
 }
 $("chapStart").onclick = openChapDlg;
 $("chapCancel").onclick = () => $("chapDlg").close();
 $("chapOk").onclick = async () => {
   const title = $("chapTitle").value.trim(), pg = $("chapPage").value.trim();
-  if (!title) { $("chapErr").textContent = "챕터 제목을 쓰세요"; return; }
+  if (!title) { $("chapErr").textContent = "챕터명을 쓰세요"; return; }
   if (!/^-?\d+$/.test(pg)) { $("chapErr").textContent = "책 쪽 번호는 정수로 쓰세요"; return; }
   const next = cloneCfg(); next.chapters = next.chapters.filter(c => c.capture !== page);
-  next.chapters.push({ capture: page, page: +pg, title, split: $("chapSplit").value, exclude: $("chapExcl").checked });
+  next.chapters.push({ capture: page, page: +pg, title, part: $("chapPart").value.trim(), split: $("chapSplit").value, exclude: $("chapExcl").checked });
   if (await saveCfg(next)) { $("chapDlg").close(); setStatus("챕터 시작을 저장했습니다: " + pn(page)); }
 };
 $("chapDel").onclick = async () => {
@@ -1519,17 +1520,21 @@ $("pageList").onclick = () => {
 };
 $("plClose").onclick = () => $("plDlg").close();
 const normT = t => t.replace(/\*+|<\/?u>|<br\s*\/?>|\s+/g, "");
-function tocItems() {  // [{level, text, page}] — 설정의 챕터 + 글 속 제목 (챕터 시작 쪽의 같은 제목 줄은 한 번만)
+function tocItems() {  // [{level, text, page}] — 설정의 파트·챕터(##) + 글 속 제목 (챕터 시작 쪽의 챕터명·파트 줄은 머리에 한 번만)
   syncFull();
-  const items = [], dropped = new Set();
-  cfg.chapters.forEach(c => items.push({ level: 1, text: c.title, page: c.capture, ord: -1 }));
+  const items = [], dropped = new Map();
+  let lastPart = "";
+  cfg.chapters.slice().sort((a, b) => a.capture - b.capture).forEach(c => {
+    if (c.part && c.part !== lastPart) { items.push({ level: 1, text: "파트: " + c.part, page: c.capture, ord: -2 }); lastPart = c.part; }
+    items.push({ level: 2, text: c.title, page: c.capture, ord: -1 });
+  });
   let pos = 0;
   full.split("\n").forEach(line => {
-    const m = /^(#{1,5})\s+(.*\S)\s*$/.exec(line.trim());
+    const m = /^(#{1,6})\s+(.*\S)\s*$/.exec(line.trim());
     if (m) {
-      const pg = pageOfPos(pos), ch = chapOf(pg);
-      if (ch && m[1].length <= 2 && !dropped.has(pg) && normT(m[2]) === normT(ch.title)) dropped.add(pg);
-      else items.push({ level: m[1].length, text: m[2], page: pg, ord: pos });
+      const pg = pageOfPos(pos), ch = chapOf(pg), t = normT(m[2]), d = dropped.get(pg) || new Set();
+      if (ch && (t === normT(ch.title) || (ch.part && t === normT(ch.part))) && !d.has(t)) { d.add(t); dropped.set(pg, d); }
+      else items.push({ level: Math.max(2, m[1].length), text: m[2], page: pg, ord: pos });
     }
     pos += line.length + 1;
   });
@@ -1540,9 +1545,9 @@ $("tocBtn").onclick = () => {
   const items = tocItems();
   if (!items.length) box.textContent = "제목이 없습니다";
   items.forEach(it => {
-    const e = document.createElement("div"), warn = prev && it.level > prev + 1;
-    e.style.paddingLeft = (it.level - 1) * 18 + 4 + "px"; e.className = inactive(it.page) ? "off" : "";
-    e.textContent = "#".repeat(it.level) + " " + it.text.replace(/\*+|<\/?u>/g, "") + (warn ? "  ⚠ 단계가 건너뜀" : "");
+    const e = document.createElement("div"), warn = prev >= 2 && it.level > prev + 1;
+    e.style.paddingLeft = Math.max(0, it.level - 1) * 18 + 4 + "px"; e.className = inactive(it.page) ? "off" : "";
+    e.textContent = (it.level > 1 ? "#".repeat(it.level) + " " : "") + it.text.replace(/\*+|<\/?u>/g, "") + (warn ? "  ⚠ 단계가 건너뜀" : "");
     const g = document.createElement("span"); g.className = "pgn"; g.textContent = pn(it.page); e.appendChild(g);
     e.onclick = () => { $("tocDlg").close(); showPage(it.page, {}); };
     box.appendChild(e); prev = it.level;
@@ -1552,7 +1557,7 @@ $("tocBtn").onclick = () => {
 $("tocClose").onclick = () => $("tocDlg").close();
 
 // ---- 시작 --------------------------------------------------------------
-const EDITOR_VERSION = "2026-11-14.1";  // ebook_review.py 의 EDITOR_VERSION 과 같게
+const EDITOR_VERSION = "2026-11-15.1";  // ebook_review.py 의 EDITOR_VERSION 과 같게
 (async function init() {
   try {
     let sv = ""; try { sv = (await api("/api/version")).version; } catch (e) {}

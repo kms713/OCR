@@ -18,8 +18,8 @@ import ebook_export  # noqa: E402
 SAMPLE_MD = (HERE / "견본_교정.md").read_text(encoding="utf-8")
 CONFIG = {
     "chapters": [
-        {"capture": 3, "page": 1, "title": "1장 시작", "split": "chapter", "exclude": False},
-        {"capture": 6, "page": 4, "title": "2장 도구", "split": "topic", "exclude": False},
+        {"capture": 3, "page": 1, "title": "1장 시작", "part": "Part 1. 기초", "split": "chapter", "exclude": False},
+        {"capture": 6, "page": 4, "title": "2장 도구", "part": "Part 1. 기초", "split": "topic", "exclude": False},
     ],
     "page_fixes": [{"capture": 9, "page": 8}],
     "skip_pages": [7],
@@ -73,20 +73,31 @@ def main() -> int:
         names = sorted(p.name for p in d.glob("*.md"))
         print("[내보내기: 설정 있음]")
         check("파일 네 개", set(names) == {"책.앞부분.md", "책.챕터01.md", "책.챕터02.md", "책.챕터02.대주제01.md"} and len(names) == 4, names)
+        H1 = ["# 책", "파트: Part 1. 기초"]
         c1 = lines(d / "책.챕터01.md")
-        check("챕터01 시작 순서", c1[:5] == ["# 책", "[p.1]", "## 1장 시작", "[p.2]", "### 대주제A"], c1[:6])
+        check("챕터01 머리·시작 순서", c1[:6] == H1 + ["쪽: p.1–p.3", "## 1장 시작", "[p.1]", "[p.2]"] and c1[6] == "### 1-1 개요", c1[:8])
         c2 = lines(d / "책.챕터02.md")
-        check("챕터02는 [p.4]로 시작", c2[:2] == ["# 책", "[p.4]"], c2[:3])
-        check("2장 도구 한 번만", sum(1 for l in c2 if "2장 도구" in l) == 1, c2)
+        check("챕터02 머리", c2[:4] == H1 + ["쪽: p.4–p.6", "## 2장 도구"] and c2[4] == "[p.4]", c2[:6])
+        check("2장 도구는 머리에만", sum(1 for l in c2 if "2장 도구" in l) == 1, c2)
         alltext = "".join(p.read_text(encoding="utf-8") for p in d.glob("*.md"))
         check("[p.5] 어디에도 없음", "[p.5]" not in alltext)
         c3 = lines(d / "책.챕터02.대주제01.md")
-        check("대주제 파일 시작 순서", c3[:4] == ["# 책", "## 2장 도구", "[p.6]", "### 대주제B"], c3[:5])
-        check("대주제 파일 뒤에 [p.8]", "[p.8]" in c3, c3)
-        check("챕터02에 …끝난다. 가 남음", any("끝난다." in l for l in c2), c2)
+        check("대주제 파일 머리", c3[:6] == H1 + ["쪽: p.6–p.8", "## 2장 도구", "[p.6]", "### 2-1 설치"], c3[:7])
+        check("대주제 파일 뒤에 [p.8]", "[p.8]" in c3 and "첫 문장…" in c3, c3)
+        check("챕터02 끝에 [p.6]과 …끝난다.", c2[-2:] == ["[p.6]", "…끝난다."], c2[-3:])
         a0 = lines(d / "책.앞부분.md")
-        check("앞부분은 [p.앞1]로 시작", a0[:2] == ["# 책", "[p.앞1]"], a0[:3])
+        check("앞부분 머리", a0[:4] == ["# 책", "쪽: p.앞1–p.앞2", "## 앞부분", "[p.앞1]"], a0[:5])
         check("요약에 뺀 쪽 표시", "뺀 쪽: 캡처 7" in log, log)
+        docx_ok = False
+        try:
+            from docx import Document
+            rc2 = ebook_export.main([str(folder), "--only", "docx"])
+            dd = Document(str(out / "책_완성본.docx"))
+            st = {p.text: p.style.name for p in dd.paragraphs}
+            docx_ok = st.get("2장 도구") == "Heading 1" and st.get("2-1 설치") == "Heading 2" and st.get("1-1 개요") == "Heading 2"
+        except ImportError:
+            docx_ok = True
+        check("Word 제목 1·2 스타일", docx_ok)
         rc, _ = export(folder, "--no-page-marks")
         check("--no-page-marks", "[p." not in "".join(p.read_text(encoding="utf-8") for p in d.glob("*.md")))
 
@@ -108,7 +119,8 @@ def main() -> int:
         check("오류 없이 끝남", rc == 0, log)
         check("앞부분 파일이 생김", "책.앞부분.md" in names, names)
         whole = lines(root / "책_OCR" / "책_AI용.md")
-        check("쪽 표시는 앞N 으로", "[p.앞4]" in whole and not any(l.startswith("## 책") for l in whole), whole[:12])
+        check("쪽 표시는 앞N 으로", "[p.앞4]" in whole, whole[:12])
+        check("글 속 ## 제목은 챕터로", any(f.name.startswith("책.챕터") for f in d.glob("*.md")), names)
     print("\n" + ("모두 통과" if not fails else f"실패 {len(fails)}건: {fails}"))
     return 1 if fails else 0
 

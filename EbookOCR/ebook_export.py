@@ -34,7 +34,7 @@ from bookpages import BookPages, count_pages, empty_config, config_path, load_co
 
 PAGE_MARK = re.compile(r"^<!--\s*p\.(\d+)(\s*이어짐)?\s*-->\s*$")  # 이어짐: 앞 쪽 마지막 문단과 이어 붙임
 FIGURE = re.compile(r"^!\[([^\]]*)\]\(([^)\s]+)\)\s*$")
-HEADING = re.compile(r"^(#{1,5})\s+(.*\S)\s*$")  # # 챕터, ## 대주제, ### 중주제, #### 소주제, ##### 소소주제
+HEADING = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")  # # 책 제목(자동), ## 챕터(자동), ### 사용자 1단계 … ###### 4단계
 # 글 속 서식 (겹쳐도 됨, 순서 상관없음): ***굵게+기울임***, **굵게**, *기울임*, <u>밑줄</u>
 # 기울임 *…* 은 앞뒤가 영문·숫자면 제외 (2*3*4 같은 곱셈). 한글 조사가 바로 붙어도(*집단 지성*의) 인식
 FMT_PATTERNS = [  # (정규식, 붙는 서식). 같은 자리에서 시작하면 앞의 것(긴 표시)이 우선
@@ -124,7 +124,7 @@ def table_cells(line: str) -> list[str]:
 
 
 def parse_markdown(text: str, base: Path, skip_pages=frozenset()) -> Parsed:
-    """교정 글 → 블록 목록. 제목 단계는 # 개수 그대로(1 챕터 … 5 소소주제).
+    """교정 글 → 블록 목록. 제목 단계는 # 개수 그대로(## 챕터, ### 사용자 1단계 … ###### 4단계).
     파일 첫 줄의 '# 책제목'은 건너뛴다(책 제목은 폴더 이름·--title 에서 가져옴). skip_pages: 글을 뺄 캡처 쪽 번호."""
     out = Parsed()
     page = 0
@@ -182,7 +182,7 @@ def parse_markdown(text: str, base: Path, skip_pages=frozenset()) -> Parsed:
             continue  # 그림은 이어 붙이기 대상이 아니므로 join_next 를 그대로 둔다 (그림 뒤 본문을 앞 문단에 붙임)
         m = HEADING.match(s)
         if m:
-            out.blocks.append(Block("heading", m.group(2), level=len(m.group(1)), page=page))
+            out.blocks.append(Block("heading", m.group(2), level=max(2, len(m.group(1))), page=page))  # 글 속 # 는 책 제목 자리라 ## 로 본다
             join_next = False  # 제목이 오면 이어지지 않음
             continue
         m = NOTE.match(s)
@@ -200,16 +200,17 @@ def parse_markdown(text: str, base: Path, skip_pages=frozenset()) -> Parsed:
 
 
 # ----------------------------------------------------------------------------
-# 챕터 나누기 (설정 + 교정 글 속 '# 제목')
+# 챕터 나누기 (챕터 설정 + 설정이 없을 때 교정 글 속 '## 제목')
 # ----------------------------------------------------------------------------
 @dataclass
 class Chapter:
     num: int  # 0 = 앞부분, 1~ = 챕터 번호 (제외한 챕터도 번호를 차지한다)
     title: str
-    split: int  # 0 = 챕터만, N = 제목 단계 N+1(## …)까지 나눔 (설정의 '대주제까지' = 1)
+    part: str
+    split: int  # 0 = 챕터만, N = ### … (## 아래 N단계)까지 나눔 (설정의 '대주제까지' = 1)
     exclude: bool
     start: int  # 시작 캡처 쪽
-    blocks: list = field(default_factory=list)
+    blocks: list = field(default_factory=list)  # 쪽 표시 블록 + 본문 블록 (챕터명·파트는 머리에서 따로 씀)
 
 
 @dataclass
@@ -220,37 +221,33 @@ class Plan:
 
 
 def _norm(t: str) -> str:
-    return re.sub(r"\*+|</?u>|<br\s*/?>|\s+", "", t)
+    return re.sub(r"^#+|\*+|</?u>|<br\s*/?>|\s+", "", t)
 
 
 def build_plan(parsed: Parsed, cfg: dict | None, n_pages: int, legacy_split: int = 0) -> Plan:
     """블록을 챕터로 나누고 쪽 표시 블록에 책 쪽 번호(text)를 단다.
-    cfg 가 None(설정 파일 없음)이면 '# 제목' 줄만 챕터로 보고, 앞부분은 legacy_split 단계까지 나눈다."""
+    cfg 가 None(설정 파일 없음)이면 교정 글에 직접 쓴 '## 제목' 줄을 챕터로 보고(나누기는 챕터만), 앞부분은 legacy_split 단계까지 나눈다."""
     has_cfg = cfg is not None
     cfg = cfg or empty_config()
     bp = BookPages(cfg)
     chap_at = {c["capture"]: c for c in cfg["chapters"]}
     skip = set(cfg["skip_pages"])
-    chapters = [Chapter(0, "앞부분", 0 if has_cfg else legacy_split, False, 1)]
-    st = {"cur": chapters[0], "page": 0, "drop": None}
+    chapters = [Chapter(0, "앞부분", "", 0 if has_cfg else legacy_split, False, 1)]
+    st = {"cur": chapters[0], "page": 0, "drop": set()}
 
-    def new_chapter(title, split, exclude, start):
-        st["cur"] = Chapter(len(chapters), title, split, exclude, start)
+    def new_chapter(title, part, split, exclude, start):
+        st["cur"] = Chapter(len(chapters), title, part, split, exclude, start)
         chapters.append(st["cur"])
 
     def enter(c: int):
-        st["page"], st["drop"] = c, None
+        st["page"], st["drop"] = c, set()
         ch = chap_at.get(c)
         if ch:
-            new_chapter(ch["title"], 1 if ch["split"] == "topic" else 0, ch["exclude"], c)
-            st["drop"] = _norm(ch["title"])
+            new_chapter(ch["title"], ch.get("part", ""), 1 if ch["split"] == "topic" else 0, ch["exclude"], c)
+            st["drop"] = {x for x in (_norm(ch["title"]), _norm(ch.get("part", ""))) if x}
         if c in skip:  # 글만 뺀다: 쪽 표시는 쓰지 않고, 챕터 설정은 살아 있다
-            if ch:
-                st["cur"].blocks.append(Block("heading", ch["title"], level=1, page=c))
             return
         st["cur"].blocks.append(Block("page", bp.label(c), page=c))  # 새 챕터가 쪽 맨 위에서 시작하면 쪽 표시도 새 챕터 것
-        if ch:
-            st["cur"].blocks.append(Block("heading", ch["title"], level=1, page=c))
 
     last = 0
     for b in parsed.blocks:
@@ -261,17 +258,15 @@ def build_plan(parsed: Parsed, cfg: dict | None, n_pages: int, legacy_split: int
                 last = b.page
             continue
         cur = st["cur"]
-        if b.kind == "heading":
-            if st["drop"] and b.level <= 2 and _norm(b.text) == st["drop"]:
-                st["drop"] = None  # 챕터 시작 쪽의 글에 있던 같은 제목: 챕터 제목이 한 번만 나오게
-                continue
-            if b.level == 1:  # 교정 글에 직접 쓴 '# 제목' = 챕터 (나누기는 챕터만)
-                moved = cur.blocks.pop() if cur.blocks and cur.blocks[-1].kind == "page" and cur.blocks[-1].page == st["page"] else None
-                new_chapter(b.text, 0, False, st["page"])
-                if moved:
-                    st["cur"].blocks.append(moved)
-                st["cur"].blocks.append(b)
-                continue
+        if b.kind in ("heading", "para") and st["drop"] and _norm(b.text) in st["drop"]:
+            st["drop"].discard(_norm(b.text))  # 챕터 시작 쪽에 있던 챕터명·파트명 줄: 머리에 한 번만 나오게
+            continue
+        if b.kind == "heading" and b.level == 2 and not has_cfg:  # 설정 없이 글에 직접 쓴 '## 제목' = 챕터
+            moved = cur.blocks.pop() if cur.blocks and cur.blocks[-1].kind == "page" and cur.blocks[-1].page == st["page"] else None
+            new_chapter(b.text, "", 0, False, st["page"])
+            if moved:
+                st["cur"].blocks.append(moved)
+            continue
         cur.blocks.append(b)
     if last:
         for c in range(last + 1, n_pages + 1):
@@ -280,12 +275,12 @@ def build_plan(parsed: Parsed, cfg: dict | None, n_pages: int, legacy_split: int
 
 
 def has_content(blocks: list[Block]) -> bool:
-    return any(b.kind not in ("page",) and not (b.kind == "heading" and b.level == 1) for b in blocks)
+    return any(b.kind != "page" for b in blocks)
 
 
 def partition(ch: Chapter) -> list[list[Block]]:
-    """챕터 글을 대주제(제목 단계 2 ~ split+1) 앞에서 나눈다. 새 덩어리는 그 쪽의 쪽 표시로 시작한다
-    (대주제가 쪽 맨 위에서 시작하면 쪽 표시를 새 덩어리로 옮기고, 쪽 중간이면 같은 쪽 표시를 하나 더 둔다)."""
+    """챕터 글을 ### (사용자 1단계) 앞에서 나눈다(split 이 2 이상이면 #### 까지). 새 덩어리는 그 쪽의 쪽 표시로 시작한다
+    (제목이 쪽 맨 위에서 시작하면 쪽 표시를 새 덩어리로 옮기고, 쪽 중간이면 같은 쪽 표시를 하나 더 둔다)."""
     if not ch.split:
         return [list(ch.blocks)]
     groups: list[list[Block]] = [[]]
@@ -293,7 +288,7 @@ def partition(ch: Chapter) -> list[list[Block]]:
     for b in ch.blocks:
         if b.kind == "page":
             last_page = b
-        if b.kind == "heading" and 2 <= b.level <= ch.split + 1:
+        if b.kind == "heading" and 3 <= b.level <= ch.split + 2:
             g = groups[-1]
             if last_page is not None and g and g[-1] is last_page:
                 pb = g.pop()
@@ -308,12 +303,12 @@ def partition(ch: Chapter) -> list[list[Block]]:
 # ----------------------------------------------------------------------------
 # AI용 Markdown
 # ----------------------------------------------------------------------------
-def build_ai_markdown(blocks: list[Block], title: str, page_marks: bool) -> str:
-    """맨 위에 '# 책제목', 그 아래는 한 단계씩 내린다: 챕터 ##, 대주제 ###, … 소소주제 ######."""
-    lines: list[str] = [f"# {title}", ""]
+def render_blocks(blocks: list[Block], page_marks: bool) -> list[str]:
+    """제목은 교정 글의 # 표시를 그대로 쓴다(## 챕터, ### …)."""
+    lines: list[str] = []
     for b in blocks:
         if b.kind == "heading":
-            lines += ["#" * (b.level + 1) + f" {ai_inline(b.text)}", ""]
+            lines += ["#" * b.level + f" {ai_inline(b.text)}", ""]
         elif b.kind == "note":
             lines += [f"> {ai_inline(b.text)}", ""]
         elif b.kind == "figure":
@@ -331,6 +326,47 @@ def build_ai_markdown(blocks: list[Block], title: str, page_marks: bool) -> str:
                 lines += [f"[p.{b.text}]", ""]  # b.text = 책 쪽 번호 (앞부분은 '앞3')
         else:
             lines += [ai_inline(b.text), ""]
+    return lines
+
+
+def page_span(blocks: list[Block]) -> str:
+    labs = [b.text for b in blocks if b.kind == "page"]
+    if not labs:
+        return ""
+    return f"쪽: p.{labs[0]}" + (f"–p.{labs[-1]}" if labs[-1] != labs[0] else "")
+
+
+def file_head(title: str, ch: Chapter, blocks: list[Block]) -> list[str]:
+    """파일 머리: 책 제목 / 파트(있을 때) / 쪽 범위 / ## 챕터명. 파일만 보고 어느 책·파트·챕터·쪽인지 알게 한다."""
+    head = [f"# {title}"]
+    if ch.part:
+        head.append(f"파트: {ch.part}")
+    if page_span(blocks):
+        head.append(page_span(blocks))
+    head.append(f"## {ai_inline(ch.title)}")
+    return head + [""]
+
+
+def build_chapter_file(title: str, ch: Chapter, blocks: list[Block], page_marks: bool) -> str:
+    return "\n".join(file_head(title, ch, blocks) + render_blocks(blocks, page_marks)).rstrip() + "\n"
+
+
+def build_whole_ai(plan: Plan, title: str, page_marks: bool) -> str:
+    """책 전체 한 파일: # 책제목, 쪽 범위, 그리고 챕터마다 (파트가 바뀌면 파트 줄) ## 챕터명 + 글."""
+    kept = [c for c in plan.chapters if not c.exclude]
+    allblocks = [b for c in kept for b in c.blocks]
+    lines = [f"# {title}"] + ([page_span(allblocks)] if page_span(allblocks) else []) + [""]
+    multi = len([c for c in kept if c.num]) > 0
+    last_part = ""
+    for c in kept:
+        if c.num == 0 and not (has_content(c.blocks) and multi):
+            if c.num == 0 and has_content(c.blocks):
+                lines += render_blocks(c.blocks, page_marks)  # 챕터가 하나도 없는 책: 제목 줄 없이 그대로
+            continue
+        if c.part and c.part != last_part:
+            lines += [f"파트: {c.part}"]
+            last_part = c.part
+        lines += [f"## {ai_inline(c.title)}", ""] + render_blocks(c.blocks, page_marks)
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -391,7 +427,7 @@ def build_docx(blocks: list[Block], title: str, base: Path, path: Path, captions
     n_fig = 0
     for b in blocks:
         if b.kind == "heading":
-            h = doc.add_heading("", level=min(5, b.level))
+            h = doc.add_heading("", level=min(5, max(1, b.level - 1)))  # ## → 제목 1, ### → 제목 2 …
             add_inline(h, b.text)
         elif b.kind == "note":
             p = doc.add_paragraph()
@@ -452,7 +488,7 @@ def safe_name(t: str) -> str:
 
 def split_files(plan: Plan, title: str, page_marks: bool) -> list[tuple[str, str]]:
     """장별 AI용 파일 [(파일 이름, 내용)]. 제외한 챕터는 만들지 않고, 챕터 번호는 건너뛰지 않는다.
-    파일 이름: 책.앞부분.md / 책.챕터01.md / (대주제로 나눈 챕터) 책.챕터03.md + 책.챕터03.대주제01.md"""
+    파일 이름: 책.앞부분.md / 책.챕터01.md / (대주제까지 나눈 챕터) 책.챕터03.md + 책.챕터03.대주제01.md"""
     name = safe_name(title)
     out: list[tuple[str, str]] = []
     for ch in plan.chapters:
@@ -461,10 +497,29 @@ def split_files(plan: Plan, title: str, page_marks: bool) -> list[tuple[str, str
         stem = f"{name}.앞부분" if ch.num == 0 else f"{name}.챕터{ch.num:02d}"
         groups = partition(ch)
         if has_content(groups[0]):
-            out.append((f"{stem}.md", build_ai_markdown(groups[0], title, page_marks)))
+            out.append((f"{stem}.md", build_chapter_file(title, ch, groups[0], page_marks)))
         for k, g in enumerate(groups[1:], start=1):
-            head = [Block("heading", ch.title, level=1, page=ch.start)] if ch.num else []  # 파일만 보고도 어느 챕터인지
-            out.append((f"{stem}.대주제{k:02d}.md", build_ai_markdown(head + g, title, page_marks)))
+            out.append((f"{stem}.대주제{k:02d}.md", build_chapter_file(title, ch, g, page_marks)))
+    return out
+
+
+def docx_blocks(plan: Plan) -> list[Block]:
+    """Word 용: 챕터마다 (파트가 바뀌면 파트 줄) ## 챕터명 + 글. 쪽 표시는 넣지 않는다."""
+    kept = [c for c in plan.chapters if not c.exclude]
+    multi = any(c.num for c in kept)
+    out: list[Block] = []
+    last_part = ""
+    for c in kept:
+        if c.num == 0 and not multi:
+            out += c.blocks
+            continue
+        if c.num == 0 and not has_content(c.blocks):
+            continue
+        if c.part and c.part != last_part:
+            out.append(Block("para", f"파트: {c.part}"))
+            last_part = c.part
+        out.append(Block("heading", c.title, level=2, page=c.start))
+        out += c.blocks
     return out
 
 
@@ -497,7 +552,7 @@ def parse_args(argv=None):
     ap.add_argument("--no-page-marks", action="store_true", help="AI용 글에 [p.N] 쪽 표시를 넣지 않음")
     ap.add_argument("--no-caption", action="store_true", help="Word 에 그림 설명 캡션을 넣지 않음")
     ap.add_argument("--split-level", type=int, default=1, choices=[0, 1, 2, 3],
-                    help="장 설정 파일이 없을 때만: 앞부분을 나눌 제목 단계 1 = ##(기본), 2 = ###까지, 3 = ####까지, 0 = 나누지 않음")
+                    help="장 설정 파일이 없을 때만: 앞부분을 나눌 제목 단계 1 = ###(기본), 2 = ####까지, 3 = #####까지, 0 = 나누지 않음")
     return ap.parse_args(argv)
 
 
@@ -519,16 +574,15 @@ def main(argv=None) -> int:
     parsed = parse_markdown(src.read_bytes().decode("utf-8"), out_dir, set(cfg["skip_pages"]) if cfg else frozenset())
     plan = build_plan(parsed, cfg, count_pages(folder), args.split_level)
     kept = [c for c in plan.chapters if not c.exclude]
-    blocks = [b for c in kept for b in c.blocks]
-    figs = [b for b in blocks if b.kind == "figure"]
+    figs = [b for c in kept for b in c.blocks if b.kind == "figure"]
     page_marks = not args.no_page_marks
-    print(f"장 설정: {'있음 (' + str(len(cfg['chapters'])) + '개 챕터)' if cfg else '없음 (교정 글의 # 제목만 챕터로 봄)'}")
+    print(f"장 설정: {'있음 (' + str(len(cfg['chapters'])) + '개 챕터)' if cfg else '없음 (교정 글의 ## 제목을 챕터로 봄)'}")
 
     made = []
     files: list = []
     if args.only in (None, "ai"):
         p = out_dir / f"{title}_AI용.md"
-        p.write_bytes(build_ai_markdown(blocks, title, page_marks).encode("utf-8"))
+        p.write_bytes(build_whole_ai(plan, title, page_marks).encode("utf-8"))
         made.append(("AI용 글", p))
         d = out_dir / f"{title}_AI용_나눔"
         d.mkdir(exist_ok=True)
@@ -545,7 +599,7 @@ def main(argv=None) -> int:
             print("[오류] python-docx 가 없어 Word 파일을 만들 수 없습니다. 설치.bat 를 다시 실행하세요.")
             return 1
         p = out_dir / f"{title}_완성본.docx"
-        build_docx(blocks, title, out_dir, p, not args.no_caption)
+        build_docx(docx_blocks(plan), title, out_dir, p, not args.no_caption)
         made.append(("완성본(Word)", p))
 
     print(f"완료: 그림 {len(figs)}개")
