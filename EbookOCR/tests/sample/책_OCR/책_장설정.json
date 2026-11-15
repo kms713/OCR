@@ -4,5 +4,13 @@
   {"capture": 6, "page": 4, "title": "2장 도구", "part": "Part 1. 기초", "split": "topic", "exclude": false}
  ],
  "page_fixes": [{"capture": 9, "page": 8}],
- "skip_pages": [7]
+ "skip_pages": [7],
+ "toc": [{"capture": 2, "items": [
+  {"level": 0, "text": "Part 1. 기초"},
+  {"level": 1, "text": "1장 시작"},
+  {"level": 2, "text": "1.1 개요"},
+  {"level": 1, "text": "2장 도구"},
+  {"level": 2, "text": "2.1 설치"}
+ ]}],
+ "no_print_pages": false
 }

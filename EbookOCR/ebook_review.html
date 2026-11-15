@@ -7,11 +7,11 @@
 <style>
   :root { --bg:#f4f5f7; --panel:#fff; --line:#d5d8de; --ink:#1d2330; --muted:#667085; --accent:#2f6fed;
           --low:#e5484d; --pic:#2f6fed; --ok:#2e9b5f;
-          --md-h:#1f5fd1; --md-h2:#0e7c86; --md-h3:#6941c6; --md-h4:#b54708; --md-h5:#c11574; --md-mk:#98a2b3; --md-quote:#2e7d4f; --md-img:#8a3ffc; --md-b:#b25e09; --md-cm:#98a2b3;
+          --md-h:#1f5fd1; --md-h6:#7a5af8; --md-h2:#0e7c86; --md-h3:#6941c6; --md-h4:#b54708; --md-h5:#c11574; --md-mk:#98a2b3; --md-quote:#2e7d4f; --md-img:#8a3ffc; --md-b:#b25e09; --md-cm:#98a2b3;
           --md-q:rgba(229,72,77,.22); --md-sug:rgba(245,165,36,.22); }
   @media (prefers-color-scheme: dark) {
     :root { --bg:#14171c; --panel:#1c2027; --line:#323844; --ink:#e6e9ef; --muted:#9aa3b2; --accent:#6a9bff;
-            --md-h:#7aa7ff; --md-h2:#4fd1c5; --md-h3:#b8a4ff; --md-h4:#f0a35e; --md-h5:#f472b6; --md-mk:#6b7487; --md-quote:#6fcf97; --md-img:#b99bff; --md-b:#f0a35e; --md-cm:#6b7487;
+            --md-h:#7aa7ff; --md-h6:#c3b5fd; --md-h2:#4fd1c5; --md-h3:#b8a4ff; --md-h4:#f0a35e; --md-h5:#f472b6; --md-mk:#6b7487; --md-quote:#6fcf97; --md-img:#b99bff; --md-b:#f0a35e; --md-cm:#6b7487;
             --md-q:rgba(229,72,77,.3); --md-sug:rgba(245,165,36,.25); }
   }
   * { box-sizing:border-box; }
@@ -65,6 +65,8 @@
   #hl .m-h3 { color:var(--md-h3); }
   #hl .m-h4 { color:var(--md-h4); }
   #hl .m-h5 { color:var(--md-h5); }
+  #hl .m-h6 { color:var(--md-h6); }
+  #hl .m-h1 { color:var(--md-h); font-weight:700; } #hl .m-h1, #hl .m-h2 { text-decoration:underline; text-decoration-thickness:1px; text-underline-offset:3px; }
   .pgtag { color:#c77d00; font-size:12px; font-weight:400; margin-left:6px; }
   #pgListBody .it { display:flex; gap:8px; padding:3px 6px; border-bottom:1px solid var(--line); cursor:pointer; font-size:13px; }
   #pgListBody .it:hover { background:var(--bg); } #pgListBody .it.cur { background:rgba(47,111,237,.12); }
@@ -90,7 +92,7 @@
   #missInfo { color:#c77d00; font-size:12px; cursor:pointer; }
   #preview { flex:1; min-height:0; overflow:auto; padding:14px 18px; background:var(--panel); line-height:1.8; font-size:15px; }
   #preview[hidden], #edwrap[hidden] { display:none; }
-  #preview h2 { font-size:20px; margin:14px 0 6px; } #preview h3 { font-size:17px; margin:12px 0 6px; } #preview h4 { font-size:15px; margin:10px 0 4px; } #preview h5, #preview h6 { font-size:14px; margin:8px 0 4px; }
+  #preview h1 { font-size:21px; margin:16px 0 6px; } #preview h2 { font-size:19px; margin:14px 0 6px; } #preview h3 { font-size:17px; margin:12px 0 6px; } #preview h4 { font-size:15px; margin:10px 0 4px; } #preview h5, #preview h6 { font-size:14px; margin:8px 0 4px; }
   #preview blockquote { margin:6px 0; padding:2px 10px; border-left:3px solid var(--line); color:var(--muted); font-size:13px; }
   #preview table { border-collapse:collapse; margin:8px 0; font-size:14px; } #preview th, #preview td { border:1px solid var(--line); padding:3px 8px; vertical-align:top; }
   #preview th { background:var(--bg); }
@@ -98,6 +100,13 @@
   #preview figcaption { color:var(--muted); font-size:12px; }
   #preview .cont { color:var(--muted); font-size:12px; }
   .dlgwide { max-width:min(900px, 96vw); width:900px; }
+  #tocText { width:100%; box-sizing:border-box; min-height:46vh; font:14px/1.7 ui-monospace, Consolas, "D2Coding", monospace; white-space:pre; tab-size:2; }
+  .hdopt { display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:13px; margin:6px 0; }
+  #headList { max-height:52vh; overflow:auto; border:1px solid var(--line); border-radius:6px; }
+  #headList .hr { display:flex; gap:8px; align-items:center; padding:2px 6px; border-bottom:1px solid var(--line); font-size:13px; }
+  #headList .hr .nm { min-width:120px; color:var(--muted); } #headList .hr .tx { cursor:pointer; flex:1; } #headList .hr .tx:hover { text-decoration:underline; }
+  #headList .hr .mk { color:var(--md-mk); font-family:ui-monospace, Consolas, monospace; margin-right:4px; }
+  #headList .hr .sg { color:var(--accent); font-family:ui-monospace, Consolas, monospace; min-width:60px; } #headList .hr .wn { color:#c77d00; }
   .chk h3 { font-size:14px; margin:12px 0 4px; } .chk .ok { color:var(--ok); } .chk .bad { color:var(--low); }
   .pg { display:inline-block; margin:2px 3px; padding:0 6px; border:1px solid var(--line); border-radius:4px; cursor:pointer; font-size:12px; }
   .pg:hover { border-color:var(--accent); }
@@ -158,11 +167,12 @@
   <button id="nextUnchecked" title="아직 확인하지 않은 다음 쪽 (Alt+V)">다음 미확인 쪽</button>
   <span id="progress"></span>
   <span class="sep"></span>
+  <button id="tocInput" title="목차 쪽에서 누름: 목차를 한 줄에 한 항목으로, 단계는 들여쓰기(Tab/Shift+Tab)로 입력. 내보낼 때 이 쪽 글 대신 들여쓴 목록으로 들어가고, [챕터 시작]에서 항목을 고를 수 있음">목차</button>
   <button id="chapStart" title="이 쪽에서 새 챕터가 시작됩니다 (글이 없는 쪽에서도 가능). 이름·파트·책 쪽 번호·나누는 깊이를 정함">챕터 시작</button>
   <button id="pageFix" title="이 쪽의 책 쪽 번호를 바로잡음. 뒤 쪽은 여기서부터 이어서 셉니다">쪽 번호 교정</button>
   <button id="pageSkip" title="이 쪽 글을 내보내기에서 뺍니다 (쪽 번호는 그대로 차지). 다시 누르면 취소">이 쪽 빼기</button>
   <button id="pageList" title="쪽 목록: 책 쪽 번호, 챕터 시작·번호 교정·뺀 쪽 표시">쪽 목록</button>
-  <button id="tocBtn" title="제목(###~######) 목차. 누르면 그 쪽으로 이동">목차</button>
+  <button id="headBtn" title="책 전체의 제목(#~######)을 단계별로 들여 써서 보여 줌. 누르면 그 쪽으로 이동. 여러 제목의 단계를 한꺼번에 바꾸는 '일괄 정리'">제목 구조</button>
   <span class="sep"></span>
   <button id="nextSug" title="AI 교정 제안이 남은 다음 쪽으로 이동 (Alt+S)" hidden>다음 제안 쪽</button>
   <button id="cropMode" title="이미지에서 영역을 끌어 그림으로 넣기 (Alt+G)">그림 넣기 모드</button>
@@ -187,7 +197,7 @@
       <button id="previewBtn" title="이 쪽을 완성본처럼 꾸며 보기 (다시 누르면 고치기로)">미리보기</button>
       <span id="missInfo" title="원래 OCR 글에 있던 줄 중 지금 글에서 찾을 수 없는 줄 (실수로 지웠는지 확인). 이미지에 주황 점선으로 표시"></span>
       <span class="legend">이 쪽 글만 보입니다 ·
-        <i style="color:var(--md-h)">## 챕터</i><i style="color:var(--md-h2)">###</i><i style="color:var(--md-h3)">####</i><i style="color:var(--md-h4)">#####</i><i style="color:var(--md-h5)">######</i><i style="color:var(--md-quote)">&gt; 주</i><i style="color:var(--md-img)">![그림]</i><i style="color:var(--md-h2)">| 표 |</i><i style="background:var(--md-q)">[?]</i><i style="background:rgba(47,111,237,.18)">▸● 각주 후보</i><i style="background:var(--md-sug)">AI 제안 있음</i></span>
+        <i style="color:var(--md-h);font-weight:700">#</i><i style="color:var(--md-h2)">##</i><i style="color:var(--md-h3)">###</i><i style="color:var(--md-h4)">####</i><i style="color:var(--md-h5)">#####</i><i style="color:var(--md-h6)">######</i><i style="color:var(--md-quote)">&gt; 주</i><i style="color:var(--md-img)">![그림]</i><i style="color:var(--md-h2)">| 표 |</i><i style="background:var(--md-q)">[?]</i><i style="background:rgba(47,111,237,.18)">▸● 각주 후보</i><i style="background:var(--md-sug)">AI 제안 있음</i></span>
       <span class="grow"></span>
       <input id="findText" type="text" placeholder="찾기" size="10"><input id="replText" type="text" placeholder="바꿀 글" size="10">
       <button id="findNext">찾기</button><button id="replAll" title="책 전체에서 바꿀 곳을 목록으로 보고 골라서 바꾸기">바꾸기…</button>
@@ -197,7 +207,9 @@
       <button id="fI" title="기울임 (Ctrl+I)"><i>기울임</i></button>
       <button id="fU" title="밑줄 (Ctrl+U)"><u>밑줄</u></button>
       <span class="sep"></span>
-      <button id="fH3" title="제목 ###: 글을 고르고 누르면 고른 글만 제목 줄로 나뉨. 고르지 않으면 커서 줄 전체 (## 는 챕터 이름이라 자동)">###</button>
+      <button id="fH1" title="제목 # (챕터 바로 아래, 예: 1.1 — '대주제까지 나누기'의 기준). 글을 고르고 누르면 고른 글만 제목 줄로 나뉨. 고르지 않으면 커서 줄 전체. 책 제목·파트·챕터는 [챕터 시작]으로 (제목 표시 아님)">#</button>
+      <button id="fH2" title="제목 ## (그 아래, 예: 1.1.1)">##</button>
+      <button id="fH3" title="제목 ###">###</button>
       <button id="fH4" title="제목 ####">####</button>
       <button id="fH5" title="제목 #####">#####</button>
       <button id="fH6" title="제목 ######">######</button>
@@ -249,13 +261,39 @@
 
 <dialog id="chapDlg">
   <h2 id="chapDlgTitle">챕터 시작</h2>
-  <label>챕터 이름 (필수) <input id="chName" type="text" placeholder="예: 3장 에이전트 설계"></label>
-  <label>파트 (선택) <input id="chPart" type="text" placeholder="예: Part 2. 설계의 기술"></label>
-  <label>이 쪽의 책 쪽 번호 (필수) <input id="chPage" type="number" min="0" step="1"></label>
-  <label>나누는 깊이 <select id="chSplit"><option value="chapter">챕터만</option><option value="topic">대주제(###)까지</option></select></label>
+  <label>챕터 이름 (필수) <input id="chName" type="text" list="chNameList" placeholder="예: 3장 에이전트 설계 (목차를 넣었으면 목록에서 고를 수 있음)"></label>
+  <label>파트 (선택) <input id="chPart" type="text" list="chPartList" placeholder="예: Part 2. 설계의 기술"></label>
+  <datalist id="chNameList"></datalist><datalist id="chPartList"></datalist>
+  <label>이 쪽의 책 쪽 번호 <input id="chPage" type="number" min="0" step="1" placeholder="비우면 캡처 번호"></label>
+  <label>나누기 <select id="chSplit"><option value="chapter">챕터만</option><option value="topic">대주제(#)까지</option></select></label>
   <label><input type="checkbox" id="chExcl"> 이 챕터 전체를 내보내기에서 제외</label>
+  <label title="책 전체 설정. 켜면 모든 쪽의 책 쪽 번호 = 캡처 번호이고, 내보낸 파일 머리의 '쪽:' 끝에 (캡처 번호)가 붙습니다"><input type="checkbox" id="chNoPrint"> (책 전체) 인쇄 쪽 번호가 없는 책 — 모든 쪽을 캡처 번호로</label>
   <div id="chErr" style="color:var(--low);margin-top:6px"></div>
   <div class="row"><button id="chDel" hidden>챕터 시작 해제</button><span class="grow"></span><button id="chCancel">취소</button><button id="chOk" class="on">저장</button></div>
+</dialog>
+
+<dialog id="tocDlg" class="dlgwide">
+  <h2 id="tocTitle">목차 입력</h2>
+  <div style="color:var(--muted);font-size:12px">한 줄에 한 항목. <b>Tab</b> = 한 단계 안으로, <b>Shift+Tab</b> = 한 단계 밖으로 (여러 줄을 골라도 됨). 두 항목이 한 줄에 붙었으면 그 자리에서 <b>Enter</b>로 나누고, 나뉜 줄은 Backspace 로 합칩니다.
+    목차가 여러 쪽이면 쪽마다 이 창을 열어 이어 입력하세요. 내보낼 때 이 쪽 글 대신 '**목차**' 와 들여쓴 목록으로 들어갑니다.</div>
+  <textarea id="tocText" spellcheck="false"></textarea>
+  <div id="tocInfo" style="color:var(--muted);font-size:12px"></div>
+  <div class="row"><button id="tocDel" hidden>이 쪽 목차 지우기</button><button id="tocRefill" title="지금 입력을 버리고 이 쪽의 OCR 글로 다시 채움">OCR 글로 다시 채우기</button><span class="grow"></span><button id="tocCancel">취소</button><button id="tocOk" class="on">저장</button></div>
+</dialog>
+
+<dialog id="headDlg" class="dlgwide">
+  <h2>제목 구조 · 일괄 정리</h2>
+  <div class="opt hdopt">거르기: 단계 <select id="hdLevel"><option value="">모두</option><option value="1">#</option><option value="2">##</option><option value="3">###</option><option value="4">####</option><option value="5">#####</option><option value="6">######</option></select>
+    글 앞머리 <select id="hdPat"><option value="">모두</option><option value="n2">숫자.숫자 (1.1)</option><option value="n3">숫자.숫자.숫자 (1.1.1)</option><option value="n1">숫자로 시작 (1, 1장 …)</option><option value="nn">숫자로 시작하지 않음</option><option value="rx">직접 (정규식)</option></select>
+    <input id="hdRx" type="text" size="12" placeholder="예: ^제\d+절" hidden>
+    <button id="hdAllOn">보이는 줄 모두 체크</button><button id="hdAllOff">모두 해제</button></div>
+  <div id="headList"></div>
+  <div class="opt hdopt"><span id="hdCount"></span> 체크한 줄을 <select id="hdTo"><option value="1">#</option><option value="2">##</option><option value="3">###</option><option value="4">####</option><option value="5">#####</option><option value="6">######</option><option value="0">본문</option></select>
+    <button id="hdApply" class="on">(으)로 바꾸기</button>
+    <span class="sep"></span><button id="hdSuggest" title="글 앞머리 숫자로 단계를 제안합니다 (1.1 → #, 1.1.1 → ##, 1.1.1.1 → ###). 제안만 하고, 적용은 [제안대로 바꾸기]">자동 제안</button><button id="hdApplySug" hidden>체크한 줄 제안대로 바꾸기</button>
+    <span class="grow"></span><button id="hdUndo" hidden title="직전 일괄 정리 전으로 되돌림">직전 일괄 정리 취소</button></div>
+  <div style="color:var(--muted);font-size:12px">⚠ = 챕터·파트 이름과 같은 줄 (체크를 미리 빼 둠. 내보낼 때 챕터 시작 쪽의 이 줄은 머리 정보로만 나옵니다). 줄 글을 누르면 그 쪽으로 갑니다.</div>
+  <div class="row"><button id="headClose">닫기</button></div>
 </dialog>
 
 <dialog id="pgListDlg" class="dlgwide">
@@ -346,7 +384,16 @@ function pageRange(no) {  // 그 쪽 글의 범위 (쪽 표시 줄 다음부터 
   while (to > from && full[to - 1] === "\n") to--;  // 끝 빈 줄은 밖에 두어 다음 쪽 표시가 늘 제 줄에 있게
   return { from, to };
 }
+function ensureMarker(no) {  // 쪽 표시가 없는 쪽(옛 교정 파일의 글 없는 쪽)에 쪽 표시를 만들어 글을 쓸 수 있게. 만들면 true
+  const ms = markers();
+  if (!ms.length || ms.some(m => m.no === no) || !book || no < 1 || no > book.pages.length) return false;
+  const nx = ms.find(m => m.no > no), at = nx ? nx.pos : full.length;
+  const ins = (at > 0 && full[at - 1] !== "\n" ? "\n\n" : "") + "<!-- p." + no + " -->\n\n";
+  full = full.slice(0, at) + ins + full.slice(at);
+  return true;
+}
 function loadPageText(no, keepScroll) {
+  if (ensureMarker(no)) markDirty();
   const r = pageRange(no), top = ed.scrollTop;
   if (!r) { curFrom = curTo = -1; ed.value = ""; ed.readOnly = true; ed.placeholder = "이 쪽에는 글이 없습니다 (그림만 있는 쪽이거나 OCR이 글을 찾지 못한 쪽)"; }
   else { curFrom = r.from; curTo = r.to; ed.value = full.slice(r.from, r.to); ed.readOnly = false; ed.placeholder = ""; }
@@ -359,7 +406,11 @@ function loadPageText(no, keepScroll) {
 }
 function syncFull() {  // 글 칸에서 고친 것을 책 전체 글에 반영
   if (curFrom < 0) return;
-  full = full.slice(0, curFrom) + ed.value + full.slice(curTo); curTo = curFrom + ed.value.length;
+  let pre = "", post = "";  // 글이 없던 쪽에 처음 쓴 글: 쪽 표시 줄과 빈 줄로 떼어 둠 (쪽 표시가 늘 제 줄에 있게)
+  if (ed.value && curFrom > 0 && full[curFrom - 1] !== "\n") pre = "\n\n";
+  if (ed.value && curTo < full.length && full[curTo] !== "\n") post = "\n\n";
+  full = full.slice(0, curFrom) + pre + ed.value + post + full.slice(curTo);
+  curFrom += pre.length; curTo = curFrom + ed.value.length;
 }
 function gotoGlobal(k, len) {  // 책 전체 글의 위치로 이동 (필요하면 쪽을 넘김)
   const no = pageOfPos(k);
@@ -403,7 +454,7 @@ function hlInline(t, fmt) {  // 서식 표시는 흐리게, 안의 글은 서식
 }
 function hlLine(line) {
   let m, out;
-  if ((m = /^(#{1,6})(\s.*|)$/.exec(line))) out = '<span class="m-mk">' + m[1] + '</span><span class="' + ["m-h", "m-h", "m-h", "m-h2", "m-h3", "m-h4", "m-h5"][m[1].length] + '">' + hlInline(m[2]) + "</span>";
+  if ((m = /^(#{1,6})(\s.*|)$/.exec(line))) out = '<span class="m-mk">' + m[1] + '</span><span class="' + ["", "m-h1", "m-h2", "m-h3", "m-h4", "m-h5", "m-h6"][m[1].length] + '">' + hlInline(m[2]) + "</span>";
   else if ((m = /^(>\s?)(.*)$/.exec(line))) out = '<span class="m-quote"><span class="m-mk">' + escH(m[1]) + "</span>" + hlInline(m[2]) + "</span>";
   else if ((m = /^(\s*)([-*+]|\d+[.)])(\s.*)$/.exec(line))) out = escH(m[1]) + '<span class="m-mk">' + escH(m[2]) + "</span>" + hlInline(m[3]);
   else if (/^\s*(\*{3,}|-{3,}|_{3,})\s*$/.test(line)) out = '<span class="m-mk">' + escH(line) + "</span>";
@@ -692,7 +743,7 @@ function moveBlock(dir) {  // 커서가 있는 문단(빈 줄로 나뉜 덩어�
 $("fB").onclick = () => toggleFmt("b");
 $("fI").onclick = () => toggleFmt("i");
 $("fU").onclick = () => toggleFmt("u");
-function setHeading(n) {  // 제목 ###~######. 글을 골랐으면 고른 글만 제목 줄로 떼어 냄(앞 글·뒷 글은 각자 문단), 안 골랐으면 커서 줄 전체
+function setHeading(n) {  // 제목 #~######. 글을 골랐으면 고른 글만 제목 줄로 떼어 냄(앞 글·뒷 글은 각자 문단), 안 골랐으면 커서 줄 전체
   if (ed.readOnly) return;
   const prefix = "#".repeat(n) + " ", v = ed.value, a = ed.selectionStart, b = ed.selectionEnd;
   if (a === b) return setLinePrefix(prefix);
@@ -704,7 +755,7 @@ function setHeading(n) {  // 제목 ###~######. 글을 골랐으면 고른 글�
   setText(out, (left ? left.length + 2 : 0) + head.length);
   setStatus("제목(" + "#".repeat(n) + ")으로 나눴습니다");
 }
-[3, 4, 5, 6].forEach(n => { $("fH" + n).onclick = () => setHeading(n); });
+[1, 2, 3, 4, 5, 6].forEach(n => { $("fH" + n).onclick = () => setHeading(n); });
 $("fP").onclick = () => setLinePrefix("");
 $("fNote").onclick = makeNote;
 $("fUp").onclick = () => moveBlock(-1);
@@ -808,15 +859,16 @@ $("tblOk").onclick = () => {
 };
 
 // ---- 챕터 설정: 챕터 시작·쪽 번호 교정·뺀 쪽 (책이름_장설정.json). 내부 쪽 번호(캡처 번호)는 바꾸지 않고, 책 쪽 번호는 표시·내보내기용으로만 계산 ----
-let chapCfg = { chapters: [], page_fixes: [], skip_pages: [] };
-function hasPageCfg() { return chapCfg.chapters.length > 0 || chapCfg.page_fixes.length > 0; }
+let chapCfg = { chapters: [], page_fixes: [], skip_pages: [], toc: [], no_print_pages: false };
+function hasPageCfg() { return (chapCfg.chapters.length > 0 || chapCfg.page_fixes.length > 0) && !chapCfg.no_print_pages; }
 function chapAnchors() {  // [캡처, 책쪽] 오름차순. 같은 캡처면 번호 교정이 이김
   const m = new Map();
   chapCfg.chapters.forEach(c => m.set(c.capture, c.page));
   chapCfg.page_fixes.forEach(f => m.set(f.capture, f.page));
   return [...m.entries()].sort((x, y) => x[0] - y[0]);
 }
-function bookPage(c) {  // 앞부분이면 null
+function bookPage(c) {  // 앞부분이면 null. 인쇄 쪽 번호 없음이면 캡처 번호
+  if (chapCfg.no_print_pages) return c;
   let best = null; for (const [cap, pg] of chapAnchors()) { if (cap <= c) best = [cap, pg]; else break; }
   return best ? best[1] + (c - best[0]) : null;
 }
@@ -835,6 +887,7 @@ function pageTags(no) {  // [글자, 종류] 표시들
   const t = [], ch = chapCfg.chapters.find(c => c.capture === no);
   if (ch) t.push(["🔖 챕터 시작: " + ch.title, "ch"]);
   if (chapCfg.page_fixes.some(f => f.capture === no)) t.push(["✎ 번호 교정", "fix"]);
+  if ((chapCfg.toc || []).some(x => x.capture === no)) t.push(["📑 목차", "toc"]);
   if (chapCfg.skip_pages.includes(no)) t.push(["⊘ 뺀 쪽", "skip"]);
   else { const c = chapterAtPage(no); if (c && c.exclude) t.push(["⛔ 제외 챕터", "excl"]); }
   return t;
@@ -844,6 +897,7 @@ function refreshChapUi() {
   $("pageSkip").classList.toggle("on", chapCfg.skip_pages.includes(page));
   $("pageSkip").textContent = chapCfg.skip_pages.includes(page) ? "✓ 뺀 쪽 (취소)" : "이 쪽 빼기";
   $("chapStart").classList.toggle("on", chapCfg.chapters.some(c => c.capture === page));
+  $("tocInput").classList.toggle("on", (chapCfg.toc || []).some(x => x.capture === page));
   $("pageFix").classList.toggle("on", chapCfg.page_fixes.some(f => f.capture === page));
   if (book && page) {
     $("imgTitle").innerHTML = ""; $("imgTitle").append(pageName(page) + " — " + book.pages[page - 1].name, pageTagEl(page));
@@ -865,17 +919,26 @@ $("chapStart").onclick = () => {
   $("chName").value = cur ? cur.title : ""; $("chPart").value = cur ? cur.part : (prev ? prev.part : "");
   $("chPage").value = cur ? cur.page : (b === null ? "" : b);
   $("chSplit").value = cur ? cur.split : "chapter"; $("chExcl").checked = cur ? !!cur.exclude : false;
+  $("chNoPrint").checked = !!chapCfg.no_print_pages;
+  const items = tocItems(), opts = list => list.map(t => { const o = document.createElement("option"); o.value = t; return o; });
+  $("chNameList").replaceChildren(...opts([...new Set(items.map(x => x.text))]));
+  $("chPartList").replaceChildren(...opts([...new Set(items.filter(x => items.some(y => y.parent === x)).map(x => x.text))]));
   $("chDel").hidden = !cur; $("chErr").textContent = ""; $("chapDlg").showModal(); $("chName").focus();
 };
+$("chName").addEventListener("input", () => {  // 목차 항목을 고르면 바로 위 단계 항목을 파트 기본값으로
+  const it = tocItems().find(x => x.text === $("chName").value.trim());
+  if (it && it.parent) $("chPart").value = it.parent.text;
+});
 $("chCancel").onclick = () => $("chapDlg").close();
 $("chOk").onclick = async () => {
-  const title = $("chName").value.trim(), pg = $("chPage").value.trim();
+  const title = $("chName").value.trim(), pg = $("chPage").value.trim() || String(page);  // 비우면 캡처 번호
   if (!title) { $("chErr").textContent = "챕터 이름을 적으세요"; return; }
-  if (!/^\d+$/.test(pg)) { $("chErr").textContent = "책 쪽 번호는 0 이상의 정수로 적으세요"; return; }
+  if (!/^\d+$/.test(pg)) { $("chErr").textContent = "책 쪽 번호는 0 이상의 정수로 적거나 비워 두세요 (비우면 캡처 번호)"; return; }
   const cfg = cloneCfg();
   cfg.chapters = cfg.chapters.filter(c => c.capture !== page);
   cfg.page_fixes = cfg.page_fixes.filter(f => f.capture !== page);  // 같은 쪽의 번호 교정은 챕터의 쪽 번호로 합침
   cfg.chapters.push({ capture: page, page: +pg, title, part: $("chPart").value.trim(), split: $("chSplit").value, exclude: $("chExcl").checked });
+  cfg.no_print_pages = $("chNoPrint").checked;
   if (await saveChap(cfg)) { $("chapDlg").close(); setStatus("챕터 시작을 저장했습니다: " + title); }
 };
 $("chDel").onclick = async () => {
@@ -898,33 +961,162 @@ $("pageSkip").onclick = async () => {
   cfg.skip_pages = on ? cfg.skip_pages.filter(n => n !== page) : [...cfg.skip_pages, page].sort((x, y) => x - y);
   if (await saveChap(cfg)) setStatus(on ? "이 쪽 빼기를 취소했습니다" : "이 쪽 글을 내보내기에서 뺍니다 (쪽 번호는 그대로)");
 };
-function openPageList(mode) {
+function openPageList() {
   const n = book.pages.length, ex = excludedSet(), body = $("pgListBody"); body.innerHTML = "";
-  $("pgListTitle").textContent = mode === "toc" ? "목차 (제목)" : "쪽 목록";
-  if (mode === "toc") {
-    const re = /^(#{1,6})\s+(.*\S)\s*$/gm; let m, k = 0;
-    syncFull();
-    while ((m = re.exec(full))) {
-      if (m[1].length === 1) continue;
-      const pg = pageOfPos(m.index), it = document.createElement("div"); it.className = "it";
-      const nm = document.createElement("span"); nm.className = "nm"; nm.style.minWidth = "90px"; nm.textContent = pageName(pg);
-      const tx = document.createElement("span"); tx.style.paddingLeft = (m[1].length - 2) * 16 + "px"; tx.textContent = m[1] + " " + m[2];
-      it.append(nm, tx); it.onclick = () => { $("pgListDlg").close(); showPage(pg, {}); }; body.appendChild(it); k++;
-    }
-    if (!k) body.textContent = "제목(###~######)이 아직 없습니다.";
-  } else {
-    for (let no = 1; no <= n; no++) {
-      const it = document.createElement("div"); it.className = "it" + (no === page ? " cur" : "") + (ex.has(no) ? " off" : "");
-      const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = pageName(no);
-      const tg = document.createElement("span"); tg.className = "tg"; tg.textContent = pageTags(no).map(x => x[0]).join(" · ");
-      it.append(nm, tg); it.onclick = () => { $("pgListDlg").close(); showPage(no, {}); }; body.appendChild(it);
-    }
+  $("pgListTitle").textContent = "쪽 목록";
+  for (let no = 1; no <= n; no++) {
+    const it = document.createElement("div"); it.className = "it" + (no === page ? " cur" : "") + (ex.has(no) ? " off" : "");
+    const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = pageName(no);
+    const tg = document.createElement("span"); tg.className = "tg"; tg.textContent = pageTags(no).map(x => x[0]).join(" · ");
+    it.append(nm, tg); it.onclick = () => { $("pgListDlg").close(); showPage(no, {}); }; body.appendChild(it);
   }
   $("pgListDlg").showModal();
   const c = body.querySelector(".cur"); if (c) c.scrollIntoView({ block: "center" });
 }
-$("pageList").onclick = () => openPageList("pages");
-$("tocBtn").onclick = () => openPageList("toc");
+$("pageList").onclick = () => openPageList();
+
+// ---- 목차 입력 (쪽별, 책이름_장설정.json 의 toc). 내보낼 때 그 쪽 글 대신 들여쓴 목록으로 ----
+function tocItems() {  // 책 전체 목차 항목 (쪽 순서). parent = 바로 위 단계 항목
+  const out = [], stack = [];
+  for (const t of [...(chapCfg.toc || [])].sort((x, y) => x.capture - y.capture))
+    for (const it of t.items) {
+      while (stack.length && stack[stack.length - 1].level >= it.level) stack.pop();
+      const x = { level: it.level, text: it.text, capture: t.capture, parent: stack.length ? stack[stack.length - 1] : null };
+      out.push(x); stack.push(x);
+    }
+  return out;
+}
+function tocFromOcr(no) {  // 그 쪽 글 → 한 줄에 한 항목 (제목·목록 표시, 점선과 쪽 번호는 지움)
+  syncFull(); const r = pageRange(no), t = r ? full.slice(r.from, r.to) : "";
+  return t.split("\n").map(l => l.replace(/^\s*(#{1,6}\s+|>\s?(주\s*[:：]\s*)?|[-*+•·]\s+)/, "").replace(/<\/?u>|\*+/g, ""))
+    .filter(l => !/^!\[|^<!--|^\|/.test(l.trim()))
+    .flatMap(l => l.split(/\s*[.·…‥]{3,}\s*\d*\s*/))  // '1장 ...... 3 2장 ...... 9' 처럼 붙은 항목은 점선 자리에서 나눔
+    .map(l => l.trim()).filter(l => l && !/^(차례|목차|contents?)$/i.test(l));
+}
+function tocToText(items) { return items.map(it => "  ".repeat(it.level) + it.text).join("\n"); }
+function textToToc(t) {
+  return t.split("\n").map(l => { const m = /^([ \t\u3000]*)(.*)$/.exec(l.replace(/\s+$/, "")); const w = m[1].replace(/\t/g, "  ").replace(/\u3000/g, "  ").length;
+    return { level: Math.floor(w / 2), text: m[2].replace(/\s+/g, " ").trim() }; }).filter(x => x.text);
+}
+function updateTocInfo() { const it = textToToc($("tocText").value); $("tocInfo").textContent = "항목 " + it.length + "개 · 가장 깊은 단계 " + (it.length ? Math.max(...it.map(x => x.level)) + 1 : 0); }
+$("tocInput").onclick = () => {
+  const cur = (chapCfg.toc || []).find(x => x.capture === page);
+  $("tocTitle").textContent = "목차 입력 — " + pageName(page) + (cur ? " (저장된 목차)" : " (OCR 글로 채움)");
+  $("tocText").value = cur ? tocToText(cur.items) : tocFromOcr(page).join("\n");
+  $("tocDel").hidden = !cur; updateTocInfo(); $("tocDlg").showModal(); $("tocText").focus(); $("tocText").setSelectionRange(0, 0);
+};
+$("tocText").addEventListener("input", updateTocInfo);
+$("tocText").addEventListener("keydown", e => { if (e.key === "Tab" && !e.ctrlKey && !e.altKey) { e.preventDefault(); indentLines($("tocText"), e.shiftKey ? -1 : 1, false); updateTocInfo(); } });
+$("tocRefill").onclick = () => { $("tocText").value = tocFromOcr(page).join("\n"); updateTocInfo(); };
+$("tocCancel").onclick = () => $("tocDlg").close();
+$("tocOk").onclick = async () => {
+  const items = textToToc($("tocText").value), cfg = cloneCfg();
+  cfg.toc = (cfg.toc || []).filter(x => x.capture !== page);
+  if (items.length) cfg.toc.push({ capture: page, items });
+  if (await saveChap(cfg)) { $("tocDlg").close(); setStatus(items.length ? "목차를 저장했습니다 (항목 " + items.length + "개). 내보낼 때 이 쪽 글 대신 들어갑니다" : "이 쪽 목차를 지웠습니다"); }
+};
+$("tocDel").onclick = async () => {
+  const cfg = cloneCfg(); cfg.toc = (cfg.toc || []).filter(x => x.capture !== page);
+  if (await saveChap(cfg)) { $("tocDlg").close(); setStatus("이 쪽 목차를 지웠습니다 (내보낼 때 이 쪽 OCR 글이 다시 들어갑니다)"); }
+};
+function indentLines(ta, dir, listOnly) {  // 커서 줄(고른 줄들)을 공백 2칸씩 들여쓰기·내어쓰기. listOnly: '-' 목록 줄일 때만. 처리했으면 true
+  const v = ta.value, a = ta.selectionStart, b = ta.selectionEnd;
+  const la = v.lastIndexOf("\n", a - 1) + 1; let lb = v.indexOf("\n", b > a && v[b - 1] === "\n" ? b - 1 : b); if (lb < 0) lb = v.length;
+  const lines = v.slice(la, lb).split("\n");
+  if (listOnly && !lines.some(l => /^\s*[-*+]\s/.test(l))) return false;
+  const nl = lines.map(l => !l.trim() || (listOnly && !/^\s*[-*+]\s/.test(l)) ? l : dir > 0 ? "  " + l : l.replace(/^(\t| {1,2})/, ""));
+  const first = nl[0].length - lines[0].length, block = nl.join("\n"), nv = v.slice(0, la) + block + v.slice(lb);
+  const na = a === b ? Math.max(la, a + first) : la, nb = a === b ? na : la + block.length;
+  if (ta === ed) { setText(nv, na, nb); return true; }
+  ta.focus(); ta.setSelectionRange(la, lb);
+  let ok = false; try { ok = document.execCommand("insertText", false, block); } catch (e) {}
+  if (!ok || ta.value !== nv) ta.value = nv;
+  ta.setSelectionRange(na, nb); return true;
+}
+
+// ---- 제목 구조 · 일괄 정리 -------------------------------------------------------
+const normTitle = t => t.trim().replace(/^#{1,6}\s+/, "").replace(/\*+|<\/?u>|<br\s*\/?>/gi, "").replace(/\s+/g, "").toLowerCase();
+let hdRows = [], hdUndo = null;
+function hdScan() {  // 책 전체의 제목 줄 [{pos, end, level, text, page, warn, sug, on}]. 첫 쪽 표시 앞(옛 파일의 '# 책제목')은 뺌
+  syncFull();
+  const names = new Set(); chapCfg.chapters.forEach(c => { names.add(normTitle(c.title)); if (c.part) names.add(normTitle(c.part)); });
+  const first = (markers()[0] || { pos: 0 }).pos, re = /^(#{1,6})[ \t]+(.*\S)[ \t]*$/gm, old = new Map(hdRows.map(r => [r.pos + ":" + r.text, r.on]));
+  const out = []; let m;
+  while ((m = re.exec(full))) {
+    if (m.index < first) continue;
+    const warn = names.has(normTitle(m[2])), key = m.index + ":" + m[2];
+    out.push({ pos: m.index, end: m.index + m[0].length, level: m[1].length, text: m[2], page: pageOfPos(m.index), warn, sug: 0, on: old.has(key) ? old.get(key) : !warn });
+  }
+  return out;
+}
+function hdSuggestLevel(t) {  // 글 앞머리 숫자로 단계 제안: 1.1 → #, 1.1.1 → ##, 1.1.1.1 → ###
+  const m = /^(?:제\s*)?(\d+)((?:[.\-]\d+)+)(?![\d])/.exec(t.trim()); if (!m) return 0;
+  return Math.min(6, m[2].split(/[.\-]/).length - 1);
+}
+function hdVisible(r) {
+  const lv = $("hdLevel").value, pat = $("hdPat").value, t = r.text.trim();
+  if (lv && r.level !== +lv) return false;
+  if (pat === "n2") return /^\d+[.\-]\d+(?![.\-]?\d)/.test(t);
+  if (pat === "n3") return /^\d+[.\-]\d+[.\-]\d+(?![.\-]\d)/.test(t);
+  if (pat === "n1") return /^\d/.test(t);
+  if (pat === "nn") return !/^\d/.test(t);
+  if (pat === "rx") { try { return new RegExp($("hdRx").value).test(t); } catch (e) { return true; } }
+  return true;
+}
+function hdRender() {
+  const body = $("headList"); body.innerHTML = ""; let shown = 0, on = 0;
+  for (const r of hdRows) {
+    if (!hdVisible(r)) continue; shown++; if (r.on) on++;
+    const row = document.createElement("div"); row.className = "hr";
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = r.on; cb.onchange = () => { r.on = cb.checked; hdCount(); };
+    const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = pageName(r.page);
+    const tx = document.createElement("span"); tx.className = "tx"; tx.style.paddingLeft = (r.level - 1) * 16 + "px";
+    const mk = document.createElement("span"); mk.className = "mk"; mk.textContent = "#".repeat(r.level); tx.append(mk, r.text);
+    tx.onclick = () => { $("headDlg").close(); gotoGlobal(r.pos + r.level + 1, r.text.length); };
+    const sg = document.createElement("span"); sg.className = "sg"; sg.textContent = r.sug ? "→ " + "#".repeat(r.sug) : "";
+    row.append(cb, nm, tx, sg);
+    if (r.warn) { const w = document.createElement("span"); w.className = "wn"; w.textContent = "⚠ 챕터·파트 이름"; row.append(w); }
+    body.appendChild(row);
+  }
+  if (!hdRows.length) body.textContent = "제목(#~######)이 아직 없습니다.";
+  else if (!shown) body.textContent = "거르기에 맞는 제목이 없습니다.";
+  hdCount();
+}
+function hdTargets() { return hdRows.filter(r => r.on && hdVisible(r)); }
+function hdCount() { $("hdCount").textContent = "체크 " + hdTargets().length + "줄"; }
+function hdOpen() {
+  hdRows = hdScan(); $("hdUndo").hidden = !hdUndo; $("hdApplySug").hidden = true; hdRender(); $("headDlg").showModal();
+}
+function hdApplyRows(changes, what) {  // changes: [[row, 새 단계(0 = 본문)]]
+  changes = changes.filter(([r, lv]) => lv !== r.level);
+  if (!changes.length) { setStatus("바뀔 줄이 없습니다", true); return; }
+  if (!confirm(changes.length + "줄을 " + what + "(으)로 바꿉니다. 계속할까요?\n(되돌리려면 [직전 일괄 정리 취소])")) return;
+  syncFull(); const before = full;
+  for (const [r, lv] of [...changes].sort((x, y) => y[0].pos - x[0].pos))
+    full = full.slice(0, r.pos) + (lv ? "#".repeat(lv) + " " : "") + r.text + full.slice(r.end);
+  hdUndo = { before, after: full, n: changes.length };
+  loadPageText(page, true); markDirty();
+  hdRows = hdScan(); $("hdUndo").hidden = false; hdRender();
+  setStatus("제목 " + changes.length + "줄을 바꿨습니다");
+}
+$("headBtn").onclick = hdOpen;
+$("headClose").onclick = () => $("headDlg").close();
+["hdLevel", "hdPat"].forEach(id => $(id).onchange = () => { $("hdRx").hidden = $("hdPat").value !== "rx"; hdRender(); });
+$("hdRx").oninput = hdRender;
+$("hdAllOn").onclick = () => { hdRows.forEach(r => { if (hdVisible(r)) r.on = true; }); hdRender(); };
+$("hdAllOff").onclick = () => { hdRows.forEach(r => { if (hdVisible(r)) r.on = false; }); hdRender(); };
+$("hdApply").onclick = () => { const lv = +$("hdTo").value; hdApplyRows(hdTargets().map(r => [r, lv]), lv ? "#".repeat(lv) : "본문"); };
+$("hdSuggest").onclick = () => {
+  let k = 0; hdRows.forEach(r => { r.sug = hdSuggestLevel(r.text); if (r.sug && r.sug !== r.level) k++; });
+  $("hdApplySug").hidden = !k; hdRender(); setStatus(k ? "단계가 다른 제안 " + k + "개 (적용은 [체크한 줄 제안대로 바꾸기])" : "숫자로 단계를 제안할 줄이 없습니다");
+};
+$("hdApplySug").onclick = () => hdApplyRows(hdTargets().filter(r => r.sug).map(r => [r, r.sug]), "제안한 단계");
+$("hdUndo").onclick = () => {
+  if (!hdUndo) return; syncFull();
+  if (full !== hdUndo.after && !confirm("일괄 정리 뒤에 고친 글이 있습니다. 되돌리면 그 고침도 사라집니다. 계속할까요?")) return;
+  full = hdUndo.before; hdUndo = null; loadPageText(page, true); markDirty();
+  hdRows = hdScan(); $("hdUndo").hidden = true; hdRender(); setStatus("직전 일괄 정리를 되돌렸습니다");
+};
 $("pgListClose").onclick = () => $("pgListDlg").close();
 
 // ---- 1) 쪽 확인 완료·진행률 ---------------------------------------------------
@@ -1025,7 +1217,7 @@ function mdToHtml(text) {
       out.push("<table>" + rows.map((r, j) => "<tr>" + r.map(c => (j === 0 && head ? "<th>" : "<td>") + inlineHtml(c) + (j === 0 && head ? "</th>" : "</td>")).join("") + "</tr>").join("") + "</table>");
       continue;
     }
-    if ((m = /^(#{1,6})\s+(.*)$/.exec(l))) { const n = Math.min(6, Math.max(2, m[1].length)); out.push("<h" + n + ">" + inlineHtml(m[2]) + "</h" + n + ">"); }
+    if ((m = /^(#{1,6})\s+(.*)$/.exec(l))) { const n = Math.min(6, m[1].length); out.push("<h" + n + ">" + inlineHtml(m[2]) + "</h" + n + ">"); }
     else if ((m = /^!\[([^\]]*)\]\(([^)\s]+)\)$/.exec(l))) out.push('<figure><img src="/' + escH(m[2]) + '" alt=""><figcaption>' + (escH(m[1]) || '<span class="warn">설명 없음</span>') + "</figcaption></figure>");
     else if ((m = /^>\s?(.*)$/.exec(l))) out.push("<blockquote>" + inlineHtml(m[1]) + "</blockquote>");
     else out.push("<p>" + inlineHtml(l) + "</p>");
@@ -1468,6 +1660,9 @@ async function loadSuggestions() {
 }
 
 // ---- 단축키 ------------------------------------------------------------
+ed.addEventListener("keydown", e => {  // '-' 목록 줄에서 Tab/Shift+Tab = 공백 2칸 들여쓰기·내어쓰기 (목록 줄이 아니면 그대로)
+  if (e.key === "Tab" && !e.ctrlKey && !e.altKey && !e.metaKey && !ed.readOnly && indentLines(ed, e.shiftKey ? -1 : 1, true)) e.preventDefault();
+});
 window.addEventListener("keydown", e => {
   if ((e.key === "PageDown" || e.key === "PageUp") && !e.ctrlKey && !e.altKey && !e.shiftKey && !document.querySelector("dialog[open]")) {
     e.preventDefault(); return $(e.key === "PageDown" ? "next" : "prev").click();  // 쪽 넘기기
@@ -1499,7 +1694,7 @@ window.addEventListener("keydown", e => {
 });
 
 // ---- 시작 --------------------------------------------------------------
-const EDITOR_VERSION = "2026-11-15.1";  // ebook_review.py 의 EDITOR_VERSION 과 같게
+const EDITOR_VERSION = "2026-11-15.2";  // ebook_review.py 의 EDITOR_VERSION 과 같게
 (async function init() {
   try {
     let sv = ""; try { sv = (await api("/api/version")).version; } catch (e) {}
@@ -1514,7 +1709,7 @@ const EDITOR_VERSION = "2026-11-15.1";  // ebook_review.py 의 EDITOR_VERSION �
     $("nextLow").textContent = "다음 의심 줄 (" + suspects.length + ")";
     applyZoom();
     try { checkedSet = new Set(await api("/api/checked")); } catch (e) { checkedSet = new Set(); }
-    try { chapCfg = await api("/api/chapters"); } catch (e) { chapCfg = { chapters: [], page_fixes: [], skip_pages: [] }; }
+    try { chapCfg = await api("/api/chapters"); } catch (e) { chapCfg = { chapters: [], page_fixes: [], skip_pages: [], toc: [], no_print_pages: false }; }
     try { srcGrams = grams(sq((await api("/api/source")).md || ""), 5); } catch (e) { srcGrams = null; }
     try { excludeRegions = await api("/api/exclude"); } catch (e) { excludeRegions = []; }
     page = 0; await showPage(markers().length ? markers()[0].no : 1, {});

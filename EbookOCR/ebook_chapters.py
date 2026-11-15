@@ -11,12 +11,16 @@
       "chapters":   [{"capture": 311, "page": 291, "title": "3장 에이전트 설계", "part": "Part 2. 설계의 기술",
                       "split": "chapter", "exclude": false}],
       "page_fixes": [{"capture": 340, "page": 321}],
-      "skip_pages": [312]
+      "skip_pages": [312],
+      "toc":        [{"capture": 2, "items": [{"level": 0, "text": "프롤로그"}, {"level": 1, "text": "연구의 고통"}]}],
+      "no_print_pages": false
     }
-  chapters    챕터 시작 쪽. capture = 캡처 쪽 번호, page = 그 쪽의 책 쪽 번호, split = "chapter"(챕터만) | "topic"(### 까지),
-              exclude = 이 챕터 전체를 교정·내보내기에서 뺌
+  chapters    챕터 시작 쪽. capture = 캡처 쪽 번호, page = 그 쪽의 책 쪽 번호(비우면 캡처 번호),
+              split = "chapter"(챕터만) | "topic"(대주제 '#' 까지), exclude = 이 챕터 전체를 교정·내보내기에서 뺌
   page_fixes  쪽 번호 교정. 그 쪽부터 책 쪽 번호를 새로 시작
   skip_pages  글만 내보내기에서 뺀 쪽 (쪽 번호는 그 쪽이 그대로 차지)
+  toc         목차 창에서 입력한 목차 (쪽별). 내보낼 때 그 쪽 글 대신 들여쓴 목록으로 씀
+  no_print_pages  인쇄 쪽 번호가 없는 책: 모든 쪽의 책 쪽 = 캡처 번호 (파일 머리 '쪽:' 끝에 '(캡처 번호)')
 
 책 쪽 번호 = c 이하에서 가장 가까운 설정(챕터 시작 또는 쪽 번호 교정)의 page + (c - 그 설정의 capture).
 앞에 설정이 하나도 없으면 앞부분이며 '앞' + 캡처 번호(예: 앞3)로 표시합니다.
@@ -40,7 +44,7 @@ def config_path(out_dir: Path, title: str) -> Path:
 
 
 def empty() -> dict:
-    return {"chapters": [], "page_fixes": [], "skip_pages": []}
+    return {"chapters": [], "page_fixes": [], "skip_pages": [], "toc": [], "no_print_pages": False}
 
 
 def _int(v):
@@ -63,8 +67,10 @@ def normalize(data) -> dict:
         if not isinstance(c, dict):
             continue
         cap, page, title = _int(c.get("capture")), _int(c.get("page")), str(c.get("title") or "").strip()
-        if cap is None or cap < 1 or page is None or not title:
+        if cap is None or cap < 1 or not title:
             continue
+        if page is None:  # 쪽 번호를 비워 두면 그 쪽의 캡처 번호
+            page = cap
         split = SPLIT_TOPIC if str(c.get("split") or "").strip().lower() in _TOPIC_NAMES else SPLIT_CHAPTER
         chapters[cap] = {"capture": cap, "page": page, "title": title, "part": str(c.get("part") or "").strip(),
                          "split": split, "exclude": bool(c.get("exclude"))}
@@ -78,6 +84,25 @@ def normalize(data) -> dict:
             fixes[cap] = page
     out["page_fixes"] = [{"capture": k, "page": fixes[k]} for k in sorted(fixes)]
     out["skip_pages"] = sorted({n for n in (_int(x) for x in data.get("skip_pages") or []) if n is not None and n >= 1})
+    toc: dict[int, list] = {}
+    for t in data.get("toc") or []:
+        if not isinstance(t, dict):
+            continue
+        cap = _int(t.get("capture"))
+        if cap is None or cap < 1:
+            continue
+        items = []
+        for it in t.get("items") or []:
+            if not isinstance(it, dict):
+                continue
+            text = " ".join(str(it.get("text") or "").split())
+            lv = _int(it.get("level"))
+            if text:
+                items.append({"level": max(0, min(9, lv or 0)), "text": text})
+        if items:
+            toc[cap] = items
+    out["toc"] = [{"capture": k, "items": toc[k]} for k in sorted(toc)]
+    out["no_print_pages"] = bool(data.get("no_print_pages"))
     return out
 
 
@@ -98,7 +123,8 @@ def save(path: Path, data: dict) -> dict:
 
 # ---- 책 쪽 번호 -----------------------------------------------------------------
 def has_page_numbers(cfg: dict) -> bool:
-    return bool(cfg["chapters"] or cfg["page_fixes"])
+    """책 쪽 번호를 따로 계산하는 책인지 (인쇄 쪽 번호 없음이면 캡처 번호를 그대로 쓰므로 아님)."""
+    return bool(cfg["chapters"] or cfg["page_fixes"]) and not cfg.get("no_print_pages")
 
 
 def anchors(cfg: dict) -> list[tuple[int, int]]:
@@ -109,7 +135,9 @@ def anchors(cfg: dict) -> list[tuple[int, int]]:
 
 
 def book_page(c: int, cfg: dict) -> int | None:
-    """캡처 쪽 c 의 책 쪽 번호. 앞에 설정이 없으면 None(앞부분)."""
+    """캡처 쪽 c 의 책 쪽 번호. 앞에 설정이 없으면 None(앞부분). 인쇄 쪽 번호 없음이면 c."""
+    if cfg.get("no_print_pages"):
+        return c
     an = anchors(cfg)
     i = bisect_right([a for a, _ in an], c) - 1
     if i < 0:
@@ -124,6 +152,11 @@ def page_label(c: int, cfg: dict) -> str:
         return str(c)
     n = book_page(c, cfg)
     return f"앞{c}" if n is None else str(n)
+
+
+def toc_map(cfg: dict) -> dict[int, list]:
+    """{캡처 쪽: 목차 항목들}"""
+    return {t["capture"]: t["items"] for t in cfg.get("toc") or []}
 
 
 def chapter_of(c: int, cfg: dict) -> int | None:

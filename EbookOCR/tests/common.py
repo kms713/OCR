@@ -11,7 +11,8 @@ SAMPLE = HERE / "sample"
 
 
 def make_book(with_config: bool = True, edited: bool = True) -> tuple[Path, Path]:
-    """(책 폴더, 결과 폴더) 를 돌려준다. edited=True 면 8쪽에서 '2-1 설치'에 [###] 를 누른 결과로 고쳐 둔다."""
+    """(책 폴더, 결과 폴더) 를 돌려준다. edited=True 면 편집기 조작 (가)·(나)를 한 결과로 고쳐 둔다:
+    (가) 일괄 정리로 '## 1.1 개요' → '# 1.1 개요', (나) 8쪽에서 '2.1 설치'를 골라 [#]."""
     from PIL import Image, ImageDraw
     base = Path(tempfile.mkdtemp(prefix="ebook_test_"))
     book, out = base / "책", base / "책_OCR"
@@ -27,7 +28,8 @@ def make_book(with_config: bool = True, edited: bool = True) -> tuple[Path, Path
     if edited:
         f = out / "책_교정.md"
         t = f.read_text(encoding="utf-8")
-        old = "앞 문장이 끝난다. 2-1 설치 첫 문장이다."
-        assert old in t
-        f.write_text(t.replace(old, "앞 문장이 끝난다.\n\n### 2-1 설치\n\n첫 문장이다."), encoding="utf-8")
+        old = "앞 문장이 끝난다. 2.1 설치 첫 문장이다."
+        assert old in t and "## 1.1 개요" in t
+        t = t.replace("## 1.1 개요", "# 1.1 개요").replace(old, "앞 문장이 끝난다.\n\n# 2.1 설치\n\n첫 문장이다.")
+        f.write_text(t, encoding="utf-8")
     return book, out
