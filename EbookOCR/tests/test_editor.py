@@ -114,13 +114,16 @@ def main():
             answer["v"] = ""  # confirm 은 확인
             pg.click("#headBtn")
             rows = pg.eval_on_selector_all("#headList .hr", "rs => rs.map(r => [r.querySelector('input').checked, r.innerText])")
-            assert any("1.1 개요" in t and on for on, t in rows), rows
+            assert rows and not any(on for on, _ in rows), rows  # 처음에는 모두 체크 해제
             two = [(on, t) for on, t in rows if "2장 도구" in t]
-            assert len(two) == 2 and not any(on for on, _ in two) and all("⚠" in t for _, t in two), two
+            assert len(two) == 2 and all("⚠" in t for _, t in two), two
+            pg.select_option("#hdPat", "n2")  # 거르기로 고른 줄만 체크
+            rows = pg.eval_on_selector_all("#headList .hr", "rs => rs.map(r => [r.querySelector('input').checked, r.innerText])")
+            assert len(rows) == 1 and "1.1 개요" in rows[0][1] and rows[0][0], rows
+            pg.select_option("#hdPat", "")  # 거르기 '모두' → 다시 모두 해제
+            assert not any(pg.eval_on_selector_all("#headList .hr input", "is => is.map(i => i.checked)"))
             pg.select_option("#hdPat", "n2")
-            rows = pg.eval_on_selector_all("#headList .hr", "rs => rs.map(r => r.innerText)")
-            assert len(rows) == 1 and "1.1 개요" in rows[0], rows
-            pg.click("#hdSuggest")
+            pg.click("#hdSuggest")  # 자동 제안: 제안이 있고 단계가 다른 줄만 체크
             assert "→ #" in pg.inner_text("#headList")
             pg.select_option("#hdTo", "1"); pg.click("#hdApply")
             pg.click("#hdUndo")  # 되돌리기 → 다시
