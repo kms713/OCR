@@ -33,12 +33,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+import ebook_chapters as chap
+
 HERE = Path(__file__).resolve().parent
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}  # ebook_ocr.py 와 같게 유지
 LOW_SCORE = 0.8  # 이 신뢰도 미만 줄은 '의심 줄'
 MAX_BODY = 20 * 1024 * 1024
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
-EDITOR_VERSION = "2026-11-10.3"  # ebook_review.html 의 EDITOR_VERSION 과 같게 (업데이트 뒤 편집기를 다시 켰는지 확인용)
+EDITOR_VERSION = "2026-11-15.1"  # ebook_review.html 의 EDITOR_VERSION 과 같게 (업데이트 뒤 편집기를 다시 켰는지 확인용)
 
 FIG_LINK = re.compile(r"!\[([^\]\n]*)\]\((figures/[^)\s]+)\)")
 
@@ -69,6 +71,7 @@ class Book:
         self.figures = out_dir / "figures"
         self.suggest = out_dir / f"{title}_제안.json"  # ebook_suggest.py 가 만든 AI 교정 제안
         self.checked_file = out_dir / f"{title}_확인.json"  # 사람이 '확인 완료'한 쪽 (여러 PC 에서 이어서)
+        self.chapters_file = chap.config_path(out_dir, title)  # 챕터 설정(챕터 시작·쪽 번호 교정·뺀 쪽). 내보내기(ebook_export)가 읽음
         self.exclude_file = out_dir / f"{title}_제외영역.json"  # 영역 지우기: 다시 OCR 할 때도 빼는 영역 (ebook_ocr 가 읽음)
         self.lock = threading.Lock()
 
@@ -118,6 +121,16 @@ class Book:
         return {"rows": [{"text": r["text"], "box": r["box"], "score": r.get("score", 1.0)} for r in d.get("rows", [])],
                 "pictures": d.get("pictures", []) + d.get("screens", []), "width": d.get("width"), "height": d.get("height"),
                 "boxes": [{"text": b["text"], "box": b["box"]} for b in d.get("boxes", [])]}  # 표 넣기용 글상자
+
+    # -- 챕터 설정 --------------------------------------------------------
+    def chapters(self) -> dict:
+        return chap.load(self.chapters_file)
+
+    def set_chapters(self, data: dict) -> dict:
+        if not isinstance(data, dict):
+            raise ValueError("잘못된 설정입니다")
+        with self.lock:
+            return chap.save(self.chapters_file, data)
 
     # -- 쪽 확인 완료 -----------------------------------------------------
     def checked(self) -> list[int]:
@@ -293,6 +306,8 @@ def make_handler(book: Book):
                     return self._json({"version": EDITOR_VERSION})
                 if path == "/api/checked":
                     return self._json(book.checked())
+                if path == "/api/chapters":
+                    return self._json(book.chapters())
                 if path == "/api/source":
                     return self._json({"md": book.source_md()})
                 if path == "/api/exclude":
@@ -349,6 +364,8 @@ def make_handler(book: Book):
                 if urlparse(self.path).path == "/api/checked":
                     req = json.loads(self._body().decode("utf-8"))
                     return self._json(book.set_checked(int(req["page"]), bool(req["done"])))
+                if urlparse(self.path).path == "/api/chapters":  # 설정 전체를 새로 저장 (돌려주는 값은 정리된 설정)
+                    return self._json(book.set_chapters(json.loads(self._body().decode("utf-8"))))
                 if urlparse(self.path).path == "/api/suggest/status-many":
                     req = json.loads(self._body().decode("utf-8"))
                     book.set_suggest_status_many([(str(x["orig"]), str(x["status"])) for x in req["items"]])

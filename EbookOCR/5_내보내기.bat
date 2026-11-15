@@ -1,6 +1,7 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
+rem 쪽 표시 [p.N] 은 기본으로 넣습니다 (뺄 때만 이 파일 대신 명령창에서 --no-page-marks)
 if not exist ".venv\Scripts\python.exe" (
     echo [안내] 아직 설치가 안 되어 있습니다. 설치.bat 를 먼저 실행하세요.
     pause

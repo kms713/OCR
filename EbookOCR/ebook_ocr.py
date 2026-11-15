@@ -459,13 +459,20 @@ def fix_spacing(paras: list[Para]) -> None:
 # ----------------------------------------------------------------------------
 # 4) 저장
 # ----------------------------------------------------------------------------
-def write_markdown(paras: list[Para], path: Path, title: str, page_marks: bool) -> None:
+def write_markdown(paras: list[Para], path: Path, title: str, page_marks: bool, all_pages: list[int] | None = None) -> None:
+    """all_pages: 쪽 표시를 넣을 때 글이 없는 쪽(그림만 있는 쪽 등)에도 '<!-- p.N -->' 을 넣을 쪽 번호 전체
+    (편집기에서 나중에 그 쪽에 글을 쓸 수 있게)."""
     lines = [f"# {title}", ""]
     last_page = None
     cont_pages = {x.page for x in paras if x.cont}
+    empty_pages = sorted(set(all_pages or []) - {x.page for x in paras}) if page_marks else []
+    ei = 0
     for para in paras:
         para.text = para.text.replace(SOFT, "")
         if page_marks and para.page != last_page:
+            while ei < len(empty_pages) and empty_pages[ei] < para.page:  # 이 쪽 앞의 글 없는 쪽
+                lines += [f"<!-- p.{empty_pages[ei]} -->", ""]
+                ei += 1
             # '이어짐': 이 쪽 첫 문단은 앞 쪽 마지막 문단의 이어짐 (내보낼 때 이어 붙임)
             lines += [f"<!-- p.{para.page}{' 이어짐' if para.page in cont_pages else ''} -->", ""]
             last_page = para.page
@@ -475,6 +482,8 @@ def write_markdown(paras: list[Para], path: Path, title: str, page_marks: bool) 
             lines += [f"> 주: {para.text}", ""]
         else:
             lines += [para.text, ""]
+    for n in empty_pages[ei:]:  # 마지막 글 뒤의 글 없는 쪽
+        lines += [f"<!-- p.{n} -->", ""]
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
@@ -610,7 +619,7 @@ def main(argv=None) -> int:
     paras_r = build_paragraphs(pages, merge=False)
     if not args.no_spacing:
         fix_spacing(paras_r)
-    write_markdown(paras_r, out_dir / f"{title}_교정용.md", title, True)
+    write_markdown(paras_r, out_dir / f"{title}_교정용.md", title, True, all_pages=[p.no for p in pages])  # 글 없는 쪽에도 쪽 표시
 
     n_pic = sum(len(p.pictures) for p in pages)
     chars = sum(len(x.text) for x in paras)

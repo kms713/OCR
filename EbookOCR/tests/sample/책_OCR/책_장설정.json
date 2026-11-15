@@ -1,0 +1,8 @@
+{
+ "chapters": [
+  {"capture": 3, "page": 1, "title": "1장 시작", "part": "Part 1. 기초", "split": "chapter", "exclude": false},
+  {"capture": 6, "page": 4, "title": "2장 도구", "part": "Part 1. 기초", "split": "topic", "exclude": false}
+ ],
+ "page_fixes": [{"capture": 9, "page": 8}],
+ "skip_pages": [7]
+}

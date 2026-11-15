@@ -91,6 +91,8 @@ EbookOCR/                  ← 전자책 OCR
     지금 글에서 띄어쓰기 차이를 허용해 찾아 지움(뒤쪽 쪽부터). '다시 OCR 할 때도 빼기'면 POST /api/exclude → 책이름_제외영역.json {regions:[{box,scope,from,to}]},
     ebook_ocr.apply_exclusions 가 strip_headers 전에 rows·boxes 에서 뺌(fix_page_split 도 같음). 빠진 줄 의심은 저장된 영역 안 줄과 쪽 맨 위·아래의 쪽 번호 붙은 줄을 무시.
   AI용 나눔(ebook_export.split_ai): `--split-level`(기본 1 = ## 대주제, 0 = 안 나눔)마다 `책이름_AI용_나눔/NN_제목.md`, 각 파일 맨 위 `# 책 제목`, 첫 제목 앞은 00_앞부분. 내보낼 때 폴더 안 .md 를 지우고 다시 씀.
+
+  챕터 설정(ebook_chapters.py, `책이름_OCR/책이름_장설정.json`, 편집기 `/api/chapters`): `chapters`(capture·page·title·part·split chapter|topic·exclude), `page_fixes`(capture·page), `skip_pages`(캡처 번호). 캡처 번호(내부 쪽 번호)는 바꾸지 않고 책 쪽 번호는 표시·내보내기용으로만 계산: 캡처 c 이전 가장 가까운 설정(같은 캡처면 번호 교정 우선)의 page + (c − capture), 설정이 앞서 없으면 `앞N`. 설정 파일이 없으면 예전 동작(캡처 번호 그대로, `--split-level`). 설정이 있으면 챕터 시작대로만 나누고 `split:topic` 챕터만 `###` 에서 더 나눔(`--split-level` 무시). 파일 이름 `책이름.앞부분.md` / `.챕터NN.md` / `.챕터NN.대주제NN.md`(번호 2자리, 제외한 챕터도 번호 유지). 파일 머리: `# 책제목` / `파트:` / `쪽: p.a–p.b` / `## 챕터`, 이어서 시작 쪽의 `[p.N]`; 쪽 표시 기본 켬(`--no-page-marks` 로 끔). 챕터가 쪽 맨 위에서 시작하면 그 쪽 표시는 새 파일로만, 쪽 중간이면 두 파일 모두. 시작 쪽에서 챕터·파트 이름과 같은 줄은 생략. 뺀 쪽은 글·표시 모두 안 씀. 제목 단계: `#` 책 제목(자동), `##` 챕터(자동), 사용자는 `###`~`######`, Word 는 `##`→제목1 … `######`→제목5. ebook_ocr 교정용 md 는 글 없는 쪽에도 `<!-- p.N -->` 를 넣음. 시험: `python tests/test_export.py`, `python tests/test_editor.py`(Playwright).
   화면 캡처(ebook_ocr.drop_screenshots, 2026-11-11): 글상자 높이 < 본문 0.6배인 것을 가까운 것끼리(가로 2줄·세로 1줄 안) 묶어 8개 이상·세로 4줄·가로 6줄 이상이면 캡처로 보고
     그 안 글상자를 모두 빼고 줄을 다시 묶음(같은 줄 본문 보존), 영역은 pictures 와 캐시 `screens`(편집기 점선 그림 후보)에. `--keep-screenshots` 로 끔. fix_page_split 도 같게.
     편집기 그림 넣기: '그림 안 글 지우기'(기본 켬) — 영역 안 글상자 글을 이 쪽 글에서 띄어쓰기 차이 허용해 지움(2자 이하 건너뜀, 3~4자는 쪽에 한 번만 있을 때), 남은 1~2자 '> 주:' 줄 정리.
