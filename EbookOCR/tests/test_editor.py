@@ -110,18 +110,25 @@ def main():
             go(2); assert pg.inner_text("#imgTitle").startswith("책 앞2") and "목차" in pg.inner_text("#imgTitle"), pg.inner_text("#imgTitle")
             assert "뺀" in pg.inner_text("#progress")
 
-            # 3-가) [제목 구조] → 일괄 정리: '1.1 개요' 를 # 로. '2장 도구' 는 체크가 미리 빠져 있음
+            # 3-가) [제목 구조] → 일괄 정리: '1.1 개요' 를 # 로. 처음에는 모두 해제, 거르기·자동 제안으로 고른 줄만 체크
             answer["v"] = ""  # confirm 은 확인
             pg.click("#headBtn")
             rows = pg.eval_on_selector_all("#headList .hr", "rs => rs.map(r => [r.querySelector('input').checked, r.innerText])")
-            assert any("1.1 개요" in t and on for on, t in rows), rows
+            assert len(rows) == 3 and not any(on for on, _ in rows), rows  # 처음에는 모두 해제
             two = [(on, t) for on, t in rows if "2장 도구" in t]
-            assert len(two) == 2 and not any(on for on, _ in two) and all("⚠" in t for _, t in two), two
+            assert len(two) == 2 and all("⚠" in t for _, t in two), two
+            checked = "rs => rs.map(r => [r.querySelector('input').checked, r.innerText])"
+            pg.select_option("#hdLevel", "2")  # ## 로 거르면 ## 줄이 체크되지만 챕터·파트 이름 줄은 빠짐
+            rows = pg.eval_on_selector_all("#headList .hr", checked)
+            assert [on for on, t in rows if "1.1 개요" in t] == [True] and not any(on for on, t in rows if "2장 도구" in t), rows
+            pg.select_option("#hdLevel", "")  # 거르기를 모두 풀면 모두 해제
+            assert not any(on for on, _ in pg.eval_on_selector_all("#headList .hr", checked))
+            pg.click("#hdSuggest")  # 자동 제안: 단계가 다른 줄만 체크
+            rows = pg.eval_on_selector_all("#headList .hr", checked)
+            assert [t for on, t in rows if on] and all("1.1 개요" in t for on, t in rows if on) and "→ #" in pg.inner_text("#headList"), rows
             pg.select_option("#hdPat", "n2")
-            rows = pg.eval_on_selector_all("#headList .hr", "rs => rs.map(r => r.innerText)")
-            assert len(rows) == 1 and "1.1 개요" in rows[0], rows
-            pg.click("#hdSuggest")
-            assert "→ #" in pg.inner_text("#headList")
+            rows = pg.eval_on_selector_all("#headList .hr", checked)
+            assert len(rows) == 1 and rows[0][0] and "1.1 개요" in rows[0][1], rows
             pg.select_option("#hdTo", "1"); pg.click("#hdApply")
             pg.click("#hdUndo")  # 되돌리기 → 다시
             assert "\n## 1.1 개요" in pg.evaluate("() => full"), "되돌리기 실패"

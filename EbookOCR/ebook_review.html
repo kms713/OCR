@@ -292,7 +292,7 @@
     <button id="hdApply" class="on">(으)로 바꾸기</button>
     <span class="sep"></span><button id="hdSuggest" title="글 앞머리 숫자로 단계를 제안합니다 (1.1 → #, 1.1.1 → ##, 1.1.1.1 → ###). 제안만 하고, 적용은 [제안대로 바꾸기]">자동 제안</button><button id="hdApplySug" hidden>체크한 줄 제안대로 바꾸기</button>
     <span class="grow"></span><button id="hdUndo" hidden title="직전 일괄 정리 전으로 되돌림">직전 일괄 정리 취소</button></div>
-  <div style="color:var(--muted);font-size:12px">⚠ = 챕터·파트 이름과 같은 줄 (체크를 미리 빼 둠. 내보낼 때 챕터 시작 쪽의 이 줄은 머리 정보로만 나옵니다). 줄 글을 누르면 그 쪽으로 갑니다.</div>
+  <div style="color:var(--muted);font-size:12px">처음에는 모두 체크 해제 상태이고, 거르기를 바꾸면 거른 줄이, [자동 제안]을 누르면 단계가 다른 줄이 체크됩니다. ⚠ = 챕터·파트 이름과 같은 줄 (자동으로는 체크하지 않음. 내보낼 때 챕터 시작 쪽의 이 줄은 머리 정보로만 나옵니다). 줄 글을 누르면 그 쪽으로 갑니다.</div>
   <div class="row"><button id="headClose">닫기</button></div>
 </dialog>
 
@@ -1045,7 +1045,7 @@ function hdScan() {  // 책 전체의 제목 줄 [{pos, end, level, text, page, 
   while ((m = re.exec(full))) {
     if (m.index < first) continue;
     const warn = names.has(normTitle(m[2])), key = m.index + ":" + m[2];
-    out.push({ pos: m.index, end: m.index + m[0].length, level: m[1].length, text: m[2], page: pageOfPos(m.index), warn, sug: 0, on: old.has(key) ? old.get(key) : !warn });
+    out.push({ pos: m.index, end: m.index + m[0].length, level: m[1].length, text: m[2], page: pageOfPos(m.index), warn, sug: 0, on: old.has(key) ? old.get(key) : false });  // 처음에는 모두 해제
   }
   return out;
 }
@@ -1084,8 +1084,12 @@ function hdRender() {
 }
 function hdTargets() { return hdRows.filter(r => r.on && hdVisible(r)); }
 function hdCount() { $("hdCount").textContent = "체크 " + hdTargets().length + "줄"; }
+function hdFilterOn() { return !!($("hdLevel").value || $("hdPat").value); }
+function hdCheckByFilter() {  // 거르기를 바꾸면 거른 줄만 체크 (챕터·파트 이름과 같은 줄은 빼고). 거르기가 없으면 모두 해제
+  const f = hdFilterOn(); hdRows.forEach(r => { r.on = f && hdVisible(r) && !r.warn; });
+}
 function hdOpen() {
-  hdRows = hdScan(); $("hdUndo").hidden = !hdUndo; $("hdApplySug").hidden = true; hdRender(); $("headDlg").showModal();
+  hdRows = []; hdRows = hdScan(); $("hdUndo").hidden = !hdUndo; $("hdApplySug").hidden = true; hdRender(); $("headDlg").showModal();
 }
 function hdApplyRows(changes, what) {  // changes: [[row, 새 단계(0 = 본문)]]
   changes = changes.filter(([r, lv]) => lv !== r.level);
@@ -1101,13 +1105,14 @@ function hdApplyRows(changes, what) {  // changes: [[row, 새 단계(0 = 본문)
 }
 $("headBtn").onclick = hdOpen;
 $("headClose").onclick = () => $("headDlg").close();
-["hdLevel", "hdPat"].forEach(id => $(id).onchange = () => { $("hdRx").hidden = $("hdPat").value !== "rx"; hdRender(); });
-$("hdRx").oninput = hdRender;
+["hdLevel", "hdPat"].forEach(id => $(id).onchange = () => { $("hdRx").hidden = $("hdPat").value !== "rx"; hdCheckByFilter(); hdRender(); });
+$("hdRx").oninput = () => { hdCheckByFilter(); hdRender(); };
 $("hdAllOn").onclick = () => { hdRows.forEach(r => { if (hdVisible(r)) r.on = true; }); hdRender(); };
 $("hdAllOff").onclick = () => { hdRows.forEach(r => { if (hdVisible(r)) r.on = false; }); hdRender(); };
 $("hdApply").onclick = () => { const lv = +$("hdTo").value; hdApplyRows(hdTargets().map(r => [r, lv]), lv ? "#".repeat(lv) : "본문"); };
 $("hdSuggest").onclick = () => {
-  let k = 0; hdRows.forEach(r => { r.sug = hdSuggestLevel(r.text); if (r.sug && r.sug !== r.level) k++; });
+  let k = 0;  // 보이는 줄 중 제안 단계가 지금과 다른 줄만 체크 (챕터·파트 이름과 같은 줄은 빼고)
+  hdRows.forEach(r => { r.sug = hdSuggestLevel(r.text); const d = !!r.sug && r.sug !== r.level; if (d) k++; if (hdVisible(r)) r.on = d && !r.warn; });
   $("hdApplySug").hidden = !k; hdRender(); setStatus(k ? "단계가 다른 제안 " + k + "개 (적용은 [체크한 줄 제안대로 바꾸기])" : "숫자로 단계를 제안할 줄이 없습니다");
 };
 $("hdApplySug").onclick = () => hdApplyRows(hdTargets().filter(r => r.sug).map(r => [r, r.sug]), "제안한 단계");
@@ -1694,7 +1699,7 @@ window.addEventListener("keydown", e => {
 });
 
 // ---- 시작 --------------------------------------------------------------
-const EDITOR_VERSION = "2026-11-15.2";  // ebook_review.py 의 EDITOR_VERSION 과 같게
+const EDITOR_VERSION = "2026-11-15.3";  // ebook_review.py 의 EDITOR_VERSION 과 같게
 (async function init() {
   try {
     let sv = ""; try { sv = (await api("/api/version")).version; } catch (e) {}
